@@ -181,7 +181,7 @@ MIT License - see LICENSE file for details.
 
 ## Author
 
-Sriinnu - [@yourusername](https://github.com/sriinnu)
+Sriinnu - [@sriinnu](https://github.com/sriinnu)
 
 ## Name Origin
 

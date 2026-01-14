@@ -57,6 +57,9 @@ kairos month
 | `predict` | AI predicts goal completion |
 | `visualize week\|month\|html` | Generate SVG/HTML reports |
 | `config` | Show current settings |
+| `mcp start` | Start MCP server for AI assistants |
+| `mcp tools` | List available MCP tools |
+| `mcp query <tool>` | Query MCP tools directly |
 
 ## AI Features
 
@@ -72,6 +75,59 @@ kairos predict
 ```
 
 Make sure Ollama is running: `ollama serve`
+
+## MCP Server - Versatile AI Integration
+
+Kairos includes a powerful **Model Context Protocol (MCP)** server that enables AI assistants to interact with your work data. The MCP server provides four core capabilities:
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `think` | Reasoning and analysis about work patterns |
+| `evolve` | Self-improvement suggestions based on your data |
+| `consciousness` | Self-awareness about your current work state |
+| `persist` | Long-term memory storage and retrieval |
+
+### Starting the MCP Server
+
+```bash
+# Start on default port 8765
+kairos mcp start
+
+# Start on custom port
+kairos mcp start -p 9000
+```
+
+### Using with AI Assistants
+
+```bash
+# Get MCP config for your AI client
+kairos mcp register
+
+# Query tools directly
+kairos mcp query consciousness aspect=current
+kairos mcp query think question="Should I take a break?" analysis_type=productivity
+kairos mcp query persist action=list
+```
+
+Connect AI assistants (Claude, Cursor, etc.) to: `http://localhost:8765/mcp`
+
+### Persist Tool Operations
+
+```bash
+# Store a memory
+kairos mcp query persist action=store key="project_alpha" value="Client deadline: March 15" category="projects"
+
+# Retrieve
+kairos mcp query persist action=retrieve key="project_alpha"
+
+# Search
+kairos mcp query persist action=search query="deadline"
+
+# List all
+kairos mcp query persist action=list
+```
 
 ## Configuration
 
@@ -108,10 +164,24 @@ All data is stored locally in SQLite (`~/.kairos/data.db`). Your privacy is prot
 - **SQLite** - Local data persistence
 - **Cobra** - CLI framework
 - **Ollama** - Local AI inference
+- **MCP** - Model Context Protocol for AI integration
+
+## Performance
+
+Kairos is built with performance and memory safety in mind:
+
+- **Zero memory leaks** - Proper context handling and resource cleanup
+- **Efficient SQLite queries** - Indexed tables and optimized lookups
+- **Concurrent-safe operations** - Mutex-protected database access
+- **Minimal dependencies** - Lightweight and fast startup
 
 ## License
 
 MIT License - see LICENSE file for details.
+
+## Author
+
+Sriinnu - [@yourusername](https://github.com/sriinnu)
 
 ## Name Origin
 

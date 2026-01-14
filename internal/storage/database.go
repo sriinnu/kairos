@@ -217,3 +217,19 @@ func (d *Database) DeleteSession(id int64) error {
 	_, err := d.db.Exec("DELETE FROM work_sessions WHERE id = ?", id)
 	return err
 }
+
+// Exec executes a raw SQL query (for MCP tools)
+func (d *Database) Exec(query string, args ...interface{}) error {
+	_, err := d.db.Exec(query, args...)
+	return err
+}
+
+// Query executes a raw SQL query and returns rows
+func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return d.db.Query(query, args...)
+}
+
+// QueryRow executes a raw SQL query and returns a single row
+func (d *Database) QueryRow(query string, args ...interface{}) *sql.Row {
+	return d.db.QueryRow(query, args...)
+}

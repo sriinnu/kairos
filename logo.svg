@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2a6c"/>
+      <stop offset="50%" style="stop-color:#b21f1f"/>
+      <stop offset="100%" style="stop-color:#fdbb2d"/>
+    </linearGradient>
+    <linearGradient id="hourGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGrad)" filter="url(#shadow)"/>
+
+  <!-- Clock face -->
+  <circle cx="256" cy="256" r="180" fill="rgba(255,255,255,0.95)"/>
+
+  <!-- Hour marks -->
+  <g stroke="#1a2a6c" stroke-width="8" stroke-linecap="round">
+    <line x1="256" y1="90" x2="256" y2="110"/>
+    <line x1="256" y1="402" x2="256" y2="422"/>
+    <line x1="90" y1="256" x2="110" y2="256"/>
+    <line x1="402" y1="256" x2="422" y2="256"/>
+  </g>
+
+  <!-- Minor hour marks -->
+  <g stroke="#c0c0c0" stroke-width="4" stroke-linecap="round">
+    <line x1="330" y1="108" x2="320" y2="118"/>
+    <line x1="404" y1="182" x2="394" y2="182"/>
+    <line x1="330" y1="404" x2="320" y2="394"/>
+    <line x1="182" y1="404" x2="182" y2="394"/>
+    <line x1="108" y1="404" x2="118" y2="394"/>
+    <line x1="108" y1="182" x2="118" y2="182"/>
+    <line x1="404" y1="330" x2="394" y2="320"/>
+    <line x1="182" y1="108" x2="182" y2="118"/>
+  </g>
+
+  <!-- Hour hand (pointing to 10 - Kairos starts with K = 10th letter) -->
+  <line x1="256" y1="256" x2="180" y2="180" stroke="url(#hourGrad)" stroke-width="16" stroke-linecap="round"/>
+
+  <!-- Minute hand (pointing to 2 - 2 minutes past) -->
+  <line x1="256" y1="256" x2="330" y2="180" stroke="#1a2a6c" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- Center dot -->
+  <circle cx="256" cy="256" r="16" fill="url(#bgGrad)"/>
+  <circle cx="256" cy="256" r="8" fill="white"/>
+
+  <!-- "K" letter overlay -->
+  <text x="256" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="72" font-weight="bold" fill="white" opacity="0.3">K</text>
+</svg>

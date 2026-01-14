@@ -1,4 +1,7 @@
-# Kairos
+<div align="center">
+  <img src="logo.svg" alt="Kairos logo" width="200" height="200">
+  <h1>Kairos</h1>
+</div>
 
 A CLI tool for tracking work hours with AI-powered insights. Built in Go with SQLite storage and Ollama integration.
 

@@ -3,23 +3,38 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/kairos/internal/tracker"
 	"github.com/spf13/cobra"
 )
 
 var clockinCmd = &cobra.Command{
 	Use:   "clockin [note]",
 	Short: "Start a work session",
-	Long:  `Clock in to start tracking your work hours. Optionally add a note.`,
+	Long:  `Clock in to start tracking your work hours. Optionally add a note or override time with -t.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		note := ""
-		if len(args) > 0 {
-			note = args[0]
+		progress, err := trackerService.GetTodayProgress()
+		if err != nil {
+			return err
+		}
+		if progress.CurrentSessionID != "" {
+			return fmt.Errorf("already clocked in! Use 'kairos clockout' first")
 		}
 
-		session, err := trackerService.ClockIn(note)
+		note := ""
+		for _, arg := range args {
+			if strings.Contains(arg, ":") {
+				continue // Skip time-like args for note
+			}
+			if note != "" {
+				note += " "
+			}
+			note += arg
+		}
+
+		timeStr, _ := cmd.Flags().GetString("time")
+		session, err := trackerService.ClockInWithTime(note, timeStr)
 		if err != nil {
 			return err
 		}
@@ -141,20 +156,62 @@ var monthCmd = &cobra.Command{
 }
 
 var editCmd = &cobra.Command{
-	Use:   "edit <id>",
-	Short: "Edit a work session",
-	Long:  `Edit an existing work session by ID.`,
-	Args:  cobra.ExactArgs(1),
+	Use:   "edit [id]",
+	Short: "Edit the current or last session",
+	Long:  `Edit the current session, or a specific session by ID. Use without ID to edit today's session.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid session ID")
-		}
-
 		breakMinutes, _ := cmd.Flags().GetInt("break")
 		note, _ := cmd.Flags().GetString("note")
+		timeStr, _ := cmd.Flags().GetString("time")
 
-		return trackerService.EditSession(id, breakMinutes, note)
+		id := ""
+		if len(args) == 0 {
+			progress, err := trackerService.GetTodayProgress()
+			if err != nil {
+				return err
+			}
+			if progress.CurrentSessionID == "" {
+				return fmt.Errorf("no active session. Use: kairos edit <id>")
+			}
+			id = progress.CurrentSessionID
+		} else {
+			id = args[0]
+		}
+
+		return trackerService.EditSession(id, breakMinutes, note, timeStr)
+	},
+}
+
+var sessionsCmd = &cobra.Command{
+	Use:   "sessions",
+	Short: "List recent sessions",
+	Long:  `Show your recent work sessions with IDs for editing.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		progress, err := trackerService.GetWeeklyProgress()
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Recent Sessions:")
+		fmt.Println("================")
+		for _, s := range progress.Sessions {
+			duration := "active"
+			if s.EndTime != nil {
+				d := s.EndTime.Sub(s.StartTime).Hours()
+				duration = fmt.Sprintf("%.1fh", d)
+			}
+			note := ""
+			if s.Note != "" {
+				note = " - " + s.Note
+			}
+			status := ""
+			if s.EndTime == nil {
+				status = " [ACTIVE]"
+			}
+			fmt.Printf("%s: %s %s (%s)%s\n", s.ID[:8], s.Date.Format("Jan 02"), s.StartTime.Format("15:04"), duration, note+status)
+		}
+		return nil
 	},
 }
 
@@ -229,6 +286,7 @@ var configCmd = &cobra.Command{
 func init() {
 	editCmd.Flags().IntP("break", "b", 0, "Break time in minutes")
 	editCmd.Flags().StringP("note", "n", "", "Add a note")
+	editCmd.Flags().StringP("time", "t", "", "Override start time (HH:MM)")
 
 	clockinCmd.Flags().StringP("time", "t", "", "Override start time (HH:MM)")
 	clockoutCmd.Flags().StringP("time", "t", "", "Override end time (HH:MM)")

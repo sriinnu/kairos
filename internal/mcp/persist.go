@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -252,7 +251,7 @@ func persistCleanup(db *storage.Database, args map[string]interface{}) (interfac
 		db.Exec("DELETE FROM memories WHERE key = ''")
 	}
 
-	result, _ := db.Exec(query, params...)
+	_ = db.Exec(query, params...)
 	return map[string]interface{}{
 		"cleaned":     true,
 		"cleaned_at":  time.Now().Format(time.RFC3339),

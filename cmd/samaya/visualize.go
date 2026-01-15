@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kairos/internal/tracker"
 	"github.com/kairos/internal/visualization"
 	"github.com/spf13/cobra"
 )
@@ -16,7 +15,7 @@ var visualizeCmd = &cobra.Command{
 	Short: "Generate visual reports",
 	Long:  `Generate SVG or HTML visualizations of your work hours.`,
 	Args:  cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(c *cobra.Command, args []string) error {
 		visualizer = visualization.New()
 
 		switch args[0] {
@@ -25,7 +24,8 @@ var visualizeCmd = &cobra.Command{
 		case "month":
 			return generateMonthSVG()
 		case "html":
-			return generateHTMLReport()
+			output, _ := c.Flags().GetString("output")
+			return generateHTMLReport(output)
 		default:
 			return fmt.Errorf("unknown visualization type: %s (use: week, month, or html)", args[0])
 		}
@@ -54,7 +54,7 @@ func generateMonthSVG() error {
 	return nil
 }
 
-func generateHTMLReport() error {
+func generateHTMLReport(output string) error {
 	dayProgress, err := trackerService.GetTodayProgress()
 	if err != nil {
 		return err
@@ -65,7 +65,6 @@ func generateHTMLReport() error {
 		return err
 	}
 
-	output, _ := cmd.Flags().GetString("output")
 	html := visualizer.GenerateHTMLReport(dayProgress, weekProgress)
 
 	if output != "" {

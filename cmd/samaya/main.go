@@ -18,9 +18,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "samaya",
-	Short: "Working hours tracker with AI insights",
-	Long:  `Samaya helps you track your working hours and provides AI-powered insights about your schedule.`,
+	Use:   "kairos",
+	Short: "AI-powered time tracking with insights",
+	Long:  `Kairos helps you track your working hours and provides AI-powered insights about your schedule.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		cfg, err = config.Load()
@@ -50,10 +50,10 @@ func init() {
 	rootCmd.AddCommand(weekCmd)
 	rootCmd.AddCommand(monthCmd)
 	rootCmd.AddCommand(editCmd)
+	rootCmd.AddCommand(sessionsCmd)
 	rootCmd.AddCommand(askCmd)
 	rootCmd.AddCommand(predictCmd)
 	rootCmd.AddCommand(configCmd)
-	rootCmd.AddCommand(visualizeCmd)
 }
 
 func main() {

@@ -3,13 +3,16 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type WorkSession struct {
-	ID            int64     `json:"id"`
+	ID            string    `json:"id"`
 	Date          time.Time `json:"date"`
 	StartTime     time.Time `json:"start_time"`
 	EndTime       *time.Time `json:"end_time,omitempty"`
@@ -44,6 +47,11 @@ type Database struct {
 }
 
 func New(path string) (*Database, error) {
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, err
@@ -64,7 +72,7 @@ func New(path string) (*Database, error) {
 func (d *Database) createTables() error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS work_sessions (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT PRIMARY KEY,
 			date TEXT NOT NULL,
 			start_time TEXT NOT NULL,
 			end_time TEXT,
@@ -107,26 +115,40 @@ func (d *Database) Close() error {
 	return d.db.Close()
 }
 
-func (d *Database) InsertSession(session *WorkSession) (int64, error) {
-	result, err := d.db.Exec(
-		`INSERT INTO work_sessions (date, start_time, end_time, break_minutes, note)
-		 VALUES (?, ?, ?, ?, ?)`,
-		session.Date.Format("2006-01-02"),
-		session.StartTime.Format("2006-01-02T15:04:05"),
-		session.EndTime,
+func (d *Database) InsertSession(session *WorkSession) error {
+	if session.ID == "" {
+		session.ID = uuid.New().String()
+	}
+
+	var endTimeStr interface{}
+	if session.EndTime != nil {
+		endTimeStr = session.EndTime.UTC().Format("2006-01-02T15:04:05")
+	}
+
+	_, err := d.db.Exec(
+		`INSERT INTO work_sessions (id, date, start_time, end_time, break_minutes, note)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		session.ID,
+		session.Date.UTC().Format("2006-01-02"),
+		session.StartTime.UTC().Format("2006-01-02T15:04:05"),
+		endTimeStr,
 		session.BreakMinutes,
 		session.Note,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
+	return err
 }
 
 func (d *Database) UpdateSession(session *WorkSession) error {
+	var endTimeStr interface{}
+	if session.EndTime != nil {
+		endTimeStr = session.EndTime.UTC().Format("2006-01-02T15:04:05")
+	}
+
 	_, err := d.db.Exec(
-		`UPDATE work_sessions SET end_time = ?, break_minutes = ?, note = ? WHERE id = ?`,
-		session.EndTime,
+		`UPDATE work_sessions SET date = ?, start_time = ?, end_time = ?, break_minutes = ?, note = ? WHERE id = ?`,
+		session.Date.UTC().Format("2006-01-02"),
+		session.StartTime.UTC().Format("2006-01-02T15:04:05"),
+		endTimeStr,
 		session.BreakMinutes,
 		session.Note,
 		session.ID,
@@ -134,20 +156,64 @@ func (d *Database) UpdateSession(session *WorkSession) error {
 	return err
 }
 
-func (d *Database) GetSessionByID(id int64) (*WorkSession, error) {
+func (d *Database) GetSessionByID(id string) (*WorkSession, error) {
 	var session WorkSession
-	var endTime sql.NullString
+	var dateStr, startTimeStr, endTime sql.NullString
 
+	// Try exact match first
 	err := d.db.QueryRow(
 		`SELECT id, date, start_time, end_time, break_minutes, note
 		 FROM work_sessions WHERE id = ?`,
 		id,
-	).Scan(&session.ID, &session.Date, &session.StartTime, &endTime, &session.BreakMinutes, &session.Note)
+	).Scan(&session.ID, &dateStr, &startTimeStr, &endTime, &session.BreakMinutes, &session.Note)
+
+	if err == sql.ErrNoRows && len(id) >= 8 {
+		// Try prefix match
+		return d.GetSessionByPrefix(id[:8])
+	}
 
 	if err != nil {
 		return nil, err
 	}
 
+	if dateStr.Valid {
+		t, _ := time.Parse("2006-01-02", dateStr.String)
+		session.Date = t
+	}
+	if startTimeStr.Valid {
+		t, _ := time.Parse("2006-01-02T15:04:05", startTimeStr.String)
+		session.StartTime = t
+	}
+	if endTime.Valid {
+		t, _ := time.Parse("2006-01-02T15:04:05", endTime.String)
+		session.EndTime = &t
+	}
+
+	return &session, nil
+}
+
+func (d *Database) GetSessionByPrefix(prefix string) (*WorkSession, error) {
+	var session WorkSession
+	var dateStr, startTimeStr, endTime sql.NullString
+
+	err := d.db.QueryRow(
+		`SELECT id, date, start_time, end_time, break_minutes, note
+		 FROM work_sessions WHERE id LIKE ?`,
+		prefix+"%",
+	).Scan(&session.ID, &dateStr, &startTimeStr, &endTime, &session.BreakMinutes, &session.Note)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if dateStr.Valid {
+		t, _ := time.Parse("2006-01-02", dateStr.String)
+		session.Date = t
+	}
+	if startTimeStr.Valid {
+		t, _ := time.Parse("2006-01-02T15:04:05", startTimeStr.String)
+		session.StartTime = t
+	}
 	if endTime.Valid {
 		t, _ := time.Parse("2006-01-02T15:04:05", endTime.String)
 		session.EndTime = &t
@@ -158,18 +224,27 @@ func (d *Database) GetSessionByID(id int64) (*WorkSession, error) {
 
 func (d *Database) GetActiveSession() (*WorkSession, error) {
 	var session WorkSession
-	var endTime sql.NullString
+	var dateStr, startTimeStr sql.NullString
 
 	err := d.db.QueryRow(
-		`SELECT id, date, start_time, end_time, break_minutes, note
+		`SELECT id, date, start_time, break_minutes, note
 		 FROM work_sessions WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1`,
-	).Scan(&session.ID, &session.Date, &session.StartTime, &endTime, &session.BreakMinutes, &session.Note)
+	).Scan(&session.ID, &dateStr, &startTimeStr, &session.BreakMinutes, &session.Note)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if dateStr.Valid {
+		t, _ := time.Parse("2006-01-02", dateStr.String)
+		session.Date = t
+	}
+	if startTimeStr.Valid {
+		t, _ := time.Parse("2006-01-02T15:04:05", startTimeStr.String)
+		session.StartTime = t
 	}
 
 	return &session, nil
@@ -191,12 +266,20 @@ func (d *Database) GetSessionsInRange(start, end time.Time) ([]WorkSession, erro
 	var sessions []WorkSession
 	for rows.Next() {
 		var session WorkSession
-		var endTime sql.NullString
+		var dateStr, startTimeStr, endTime sql.NullString
 
-		if err := rows.Scan(&session.ID, &session.Date, &session.StartTime, &endTime, &session.BreakMinutes, &session.Note); err != nil {
+		if err := rows.Scan(&session.ID, &dateStr, &startTimeStr, &endTime, &session.BreakMinutes, &session.Note); err != nil {
 			return nil, err
 		}
 
+		if dateStr.Valid {
+			t, _ := time.Parse("2006-01-02", dateStr.String)
+			session.Date = t
+		}
+		if startTimeStr.Valid {
+			t, _ := time.Parse("2006-01-02T15:04:05", startTimeStr.String)
+			session.StartTime = t
+		}
 		if endTime.Valid {
 			t, _ := time.Parse("2006-01-02T15:04:05", endTime.String)
 			session.EndTime = &t
@@ -209,11 +292,10 @@ func (d *Database) GetSessionsInRange(start, end time.Time) ([]WorkSession, erro
 }
 
 func (d *Database) GetTodaySessions() ([]WorkSession, error) {
-	today := time.Now().Format("2006-01-02")
 	return d.GetSessionsInRange(time.Now(), time.Now())
 }
 
-func (d *Database) DeleteSession(id int64) error {
+func (d *Database) DeleteSession(id string) error {
 	_, err := d.db.Exec("DELETE FROM work_sessions WHERE id = ?", id)
 	return err
 }

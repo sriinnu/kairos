@@ -3,15 +3,16 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	DatabasePath string  `yaml:"database_path"`
-	WeeklyGoal   float64 `yaml:"weekly_goal"`
-	OllamaURL    string  `yaml:"ollama_url"`
-	OllamaModel  string  `yaml:"ollama_model"`
+	DatabasePath string  `yaml:"DatabasePath"`
+	WeeklyGoal   float64 `yaml:"WeeklyGoal"`
+	OllamaURL    string  `yaml:"OllamaURL"`
+	OllamaModel  string  `yaml:"OllamaModel"`
 }
 
 func Load() (*Config, error) {
@@ -28,6 +29,12 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	// Expand ~ in database path
+	if strings.HasPrefix(cfg.DatabasePath, "~/") {
+		home, _ := os.UserHomeDir()
+		cfg.DatabasePath = filepath.Join(home, cfg.DatabasePath[2:])
 	}
 
 	return &cfg, nil

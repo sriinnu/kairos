@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/samaya/internal/storage"
+	"github.com/kairos/internal/storage"
 )
 
 type Tracker struct {
@@ -27,16 +27,41 @@ func (t *Tracker) ClockIn(note string) (*storage.WorkSession, error) {
 		Note:         note,
 	}
 
-	id, err := t.db.InsertSession(session)
-	if err != nil {
+	if err := t.db.InsertSession(session); err != nil {
 		return nil, err
 	}
-	session.ID = id
 
 	return session, nil
 }
 
-func (t *Tracker) ClockOut(id int64, breakMinutes int, note string) (*storage.WorkSession, error) {
+func (t *Tracker) ClockInWithTime(note, timeStr string) (*storage.WorkSession, error) {
+	session := &storage.WorkSession{
+		Date:         time.Now(),
+		StartTime:    time.Now(),
+		BreakMinutes: 0,
+		Note:         note,
+	}
+
+	// Parse time override if provided
+	if timeStr != "" {
+		startTime, err := parseTime(timeStr)
+		if err == nil {
+			session.StartTime = startTime
+			// Adjust date if time is from previous day (e.g., 8:45 AM when it's evening)
+			if startTime.After(time.Now()) {
+				session.Date = session.Date.AddDate(0, 0, -1)
+			}
+		}
+	}
+
+	if err := t.db.InsertSession(session); err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (t *Tracker) ClockOut(id string, breakMinutes int, note string) (*storage.WorkSession, error) {
 	session, err := t.db.GetSessionByID(id)
 	if err != nil {
 		return nil, err
@@ -57,6 +82,16 @@ func (t *Tracker) ClockOut(id int64, breakMinutes int, note string) (*storage.Wo
 	return session, nil
 }
 
+func parseTime(s string) (time.Time, error) {
+	now := time.Now()
+	for _, format := range []string{"15:04", "3:04", "15:04:05", "3:04:05"} {
+		if t, err := time.Parse(format, s); err == nil {
+			return time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, now.Location()), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid time format: %s", s)
+}
+
 func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
 	sessions, err := t.db.GetTodaySessions()
 	if err != nil {
@@ -74,6 +109,9 @@ func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
 			hours := s.EndTime.Sub(s.StartTime).Hours()
 			progress.TotalHours -= float64(s.BreakMinutes) / 60.0
 			progress.TotalHours += hours
+		} else {
+			// This is the current open session
+			progress.CurrentSessionID = s.ID
 		}
 	}
 
@@ -95,6 +133,7 @@ func (t *Tracker) GetWeeklyProgress() (*WeekProgress, error) {
 		WeekEnd:    weekEnd,
 		TotalHours: 0,
 		DaysWorked: make(map[string]float64),
+		Sessions:   sessions,
 	}
 
 	for _, s := range sessions {
@@ -148,17 +187,25 @@ func (t *Tracker) GetActiveSession() (*storage.WorkSession, error) {
 	return t.db.GetActiveSession()
 }
 
-func (t *Tracker) EditSession(id int64, breakMinutes int, note string) error {
+func (t *Tracker) EditSession(id string, breakMinutes int, note string, timeStr string) error {
 	session, err := t.db.GetSessionByID(id)
 	if err != nil {
 		return err
 	}
 	session.BreakMinutes = breakMinutes
 	session.Note = note
+
+	if timeStr != "" {
+		newTime, err := parseTime(timeStr)
+		if err == nil {
+			session.StartTime = newTime
+		}
+	}
+
 	return t.db.UpdateSession(session)
 }
 
-func (t *Tracker) DeleteSession(id int64) error {
+func (t *Tracker) DeleteSession(id string) error {
 	return t.db.DeleteSession(id)
 }
 
@@ -171,9 +218,10 @@ func getWeekStart(t time.Time) time.Time {
 }
 
 type DayProgress struct {
-	Date       time.Time
-	Sessions   []storage.WorkSession
-	TotalHours float64
+	Date            time.Time
+	Sessions        []storage.WorkSession
+	TotalHours      float64
+	CurrentSessionID string
 }
 
 type WeekProgress struct {
@@ -183,6 +231,7 @@ type WeekProgress struct {
 	DaysWorked     map[string]float64
 	DaysWorkedCount int
 	RemainingHours float64
+	Sessions       []storage.WorkSession
 }
 
 type MonthProgress struct {

@@ -1,11 +1,14 @@
 # Binaries
 kairos
-kairos.exe
+samaya
+*.exe
 
 # Data
 *.db
 *.sqlite3
 data/
+.samaya/
+.kairos/
 
 # IDE
 .idea/
@@ -20,11 +23,11 @@ Thumbs.db
 *.test
 *.out
 coverage.out
+go.work
 
 # Markdown (except README)
 *.md
 !README.md
 
 # Config
-.kairos/
 .env

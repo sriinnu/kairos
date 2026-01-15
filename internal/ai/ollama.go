@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/samaya/internal/tracker"
+	"github.com/kairos/internal/tracker"
 )
 
 type Ollama struct {

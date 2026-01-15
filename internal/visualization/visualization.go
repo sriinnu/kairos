@@ -18,7 +18,7 @@ func (v *Visualizer) GenerateWeekSVG(progress *tracker.WeekProgress) string {
 	width := 600
 	height := 300
 	padding := 40
-	barWidth := (width - 2*padding) / 7
+	barWidth := float64((width - 2*padding) / 7)
 	maxHours := 12.0 // Max hours per day to display
 
 	var days []string
@@ -32,8 +32,6 @@ func (v *Visualizer) GenerateWeekSVG(progress *tracker.WeekProgress) string {
 		hours = append(hours, progress.DaysWorked[dayKey])
 	}
 
-	goalLine := (38.5 / 7) // Average daily goal
-
 	var bars strings.Builder
 	for i, h := range hours {
 		barHeight := (h / maxHours) * float64(height-2*padding)
@@ -41,8 +39,8 @@ func (v *Visualizer) GenerateWeekSVG(progress *tracker.WeekProgress) string {
 			barHeight = float64(height - 2*padding)
 		}
 
-		x := padding + float64(i)*barWidth + 5
-		y := height - padding - barHeight
+		x := float64(padding) + float64(i)*barWidth + 5
+		y := float64(height) - float64(padding) - barHeight
 
 		color := "#4CAF50"
 		if h > 10 {
@@ -90,7 +88,7 @@ func (v *Visualizer) GenerateWeekSVG(progress *tracker.WeekProgress) string {
 		padding, height-padding-30, width-padding, height-padding-30,
 		width-padding+10, height-padding-35,
 		bars.String(),
-		v.generateXLabels(days, padding, barWidth, height-padding),
+		v.generateXLabels(days, float64(padding), barWidth, float64(height-padding)),
 		v.generateGridLines(maxHours, height, padding, width),
 	)
 }
@@ -111,8 +109,8 @@ func (v *Visualizer) GenerateMonthSVG(progress *tracker.MonthProgress) string {
 	var bars strings.Builder
 	for i, h := range weekHours {
 		barHeight := (h / 40) * float64(height-2*padding)
-		x := padding + float64(i)*cellSize + 10
-		y := height - padding - barHeight
+		x := float64(padding) + float64(i)*cellSize + 10
+		y := float64(height) - float64(padding) - barHeight
 
 		bars.WriteString(fmt.Sprintf(`<rect x="%.0f" y="%.0f" width="%.0f" height="%.0f" fill="#3498DB" rx="4"/>
     <text x="%.0f" y="%d" text-anchor="middle" font-size="12" fill="#333">%.1fh</text>`,
@@ -256,7 +254,7 @@ func (v *Visualizer) generateXLabels(days []string, padding float64, barWidth fl
 func (v *Visualizer) generateGridLines(maxHours float64, height int, padding int, width int) string {
 	var lines strings.Builder
 	for i := 1; i <= 4; i++ {
-		y := height - padding - (float64(i)/4.0)*float64(height-2*padding)
+		y := float64(height) - float64(padding) - (float64(i)/4.0)*float64(height-2*padding)
 		lines.WriteString(fmt.Sprintf(`<line x1="%d" y1="%.0f" x2="%d" y2="%.0f" stroke="#E0E0E0"/>`,
 			padding, y, width-padding, y))
 	}

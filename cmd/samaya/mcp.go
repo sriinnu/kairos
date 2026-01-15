@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/kairos/internal/mcp"
@@ -57,18 +54,6 @@ AI assistants can connect to: http://localhost:8765/mcp
 		fmt.Printf("========================\n")
 		fmt.Printf("Port: http://localhost:%d/mcp\n", mcpPort)
 		fmt.Printf("Press Ctrl+C to stop\n\n")
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-		go func() {
-			<-sigChan
-			fmt.Println("\nShutting down MCP server...")
-			cancel()
-		}()
 
 		return mcp.RunServer(db, ollamaService, mcpPort)
 	},
@@ -123,7 +108,7 @@ Examples:
 		toolName := args[0]
 
 		server := mcp.NewServer(db, ollamaService, 0)
-		tool, exists := server.ToolRegistry.Get(toolName)
+		_, exists := server.ToolRegistry.Get(toolName)
 		if !exists {
 			return fmt.Errorf("unknown tool: %s", toolName)
 		}
@@ -138,7 +123,7 @@ Examples:
 		}
 
 		// Execute tool
-		handlers := server.hooks[toolName]
+		handlers := server.Hooks[toolName]
 		if len(handlers) == 0 {
 			return fmt.Errorf("no handler for tool: %s", toolName)
 		}

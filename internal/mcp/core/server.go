@@ -14,13 +14,13 @@ import (
 
 // Server represents a reusable MCP server
 type Server struct {
-	port       int
+	Port       int
 	httpServer *http.Server
-	toolRegistry *ToolRegistry
+	ToolRegistry *ToolRegistry
 	running    bool
 	mu         sync.Mutex
 	onShutdown []func() // Callbacks on shutdown
-	hooks      map[string][]func(args map[string]interface{}) (interface{}, error)
+	Hooks      map[string][]func(ctx context.Context, args map[string]interface{}) (interface{}, error)
 }
 
 // ToolRegistry holds all available MCP tools
@@ -41,9 +41,9 @@ type Handler func(ctx context.Context, args map[string]interface{}) (interface{}
 // NewServer creates a new reusable MCP server
 func NewServer(port int) *Server {
 	return &Server{
-		port:         port,
-		toolRegistry: NewToolRegistry(),
-		hooks:        make(map[string][]func(args map[string]interface{}) (interface{}, error)),
+		Port:         port,
+		ToolRegistry: NewToolRegistry(),
+		Hooks:        make(map[string][]func(ctx context.Context, args map[string]interface{}) (interface{}, error)),
 	}
 }
 
@@ -78,9 +78,9 @@ func (r *ToolRegistry) List() []Tool {
 }
 
 // AddHandler adds a handler for a tool
-func (s *Server) AddHandler(name, description string, parameters map[string]interface{}, handler Handler) {
-	s.toolRegistry.Register(name, description, parameters)
-	s.hooks[name] = append(s.hooks[name], handler)
+func (s *Server) AddHandler(name, description string, parameters map[string]interface{}, handler func(ctx context.Context, args map[string]interface{}) (interface{}, error)) {
+	s.ToolRegistry.Register(name, description, parameters)
+	s.Hooks[name] = append(s.Hooks[name], handler)
 }
 
 // OnShutdown adds a callback to run on shutdown
@@ -103,12 +103,12 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/health", s.healthHandler)
 
 	s.httpServer = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
+		Addr:    fmt.Sprintf(":%d", s.Port),
 		Handler: mux,
 	}
 
 	go func() {
-		fmt.Printf("MCP Server running on http://localhost:%d/mcp\n", s.port)
+		fmt.Printf("MCP Server running on http://localhost:%d/mcp\n", s.Port)
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("MCP server error: %v\n", err)
 		}
@@ -165,7 +165,7 @@ func (s *Server) handleRequest(ctx context.Context, req MCPRequest) MCPResponse 
 			Result: map[string]interface{}{
 				"protocolVersion": "2024-11-05",
 				"capabilities": map[string]interface{}{
-					"tools": s.toolRegistry.List(),
+					"tools": s.ToolRegistry.List(),
 				},
 				"serverInfo": map[string]string{
 					"name":    "kairos-mcp",
@@ -177,7 +177,7 @@ func (s *Server) handleRequest(ctx context.Context, req MCPRequest) MCPResponse 
 	case "tools/list":
 		return MCPResponse{
 			Result: map[string]interface{}{
-				"tools": s.toolRegistry.List(),
+				"tools": s.ToolRegistry.List(),
 			},
 		}
 
@@ -192,13 +192,13 @@ func (s *Server) handleRequest(ctx context.Context, req MCPRequest) MCPResponse 
 			toolArgs = make(map[string]interface{})
 		}
 
-		_, exists := s.toolRegistry.Get(toolName)
+		_, exists := s.ToolRegistry.Get(toolName)
 		if !exists {
 			return MCPResponse{Error: fmt.Sprintf("unknown tool: %s", toolName)}
 		}
 
 		// Execute all handlers for this tool
-		handlers := s.hooks[toolName]
+		handlers := s.Hooks[toolName]
 		if len(handlers) == 0 {
 			return MCPResponse{Error: fmt.Sprintf("no handler for tool: %s", toolName)}
 		}

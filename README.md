@@ -107,16 +107,28 @@ A powerful Model Context Protocol server that enables AI assistants to interact 
 # Clone and build
 git clone https://github.com/sriinnu/kairos.git
 cd kairos
-go build -o kairos ./cmd/samaya
+CGO_ENABLED=1 go build -o kairos ./cmd/samaya
 
 # Start your first session
 ./kairos clockin "Working on feature X"
+
+# Clock in with a specific time (forgot to clock in earlier)
+./kairos clockin -t "08:45" "Morning work"
 
 # Check your progress
 ./kairos status
 
 # End your session (with 30 min break)
 ./kairos clockout 30
+
+# List all sessions with UUIDs
+./kairos sessions
+
+# Edit the current session's note
+./kairos edit -n "Updated note"
+
+# Edit a specific session (use partial UUID from sessions list)
+./kairos edit a052c6e0 -t "09:00" -n "Corrected start time"
 
 # See weekly summary
 ./kairos week
@@ -126,6 +138,22 @@ go build -o kairos ./cmd/samaya
 
 # Start MCP server for AI assistants
 ./kairos mcp start
+```
+
+### Session Identification
+
+Sessions use UUIDs for identification. The `sessions` command shows the first 8 characters:
+
+```
+a052c6e0: Jan 15 09:00 (active) - Working on project [ACTIVE]
+```
+
+Use partial or full UUID with `edit` and `delete`:
+
+```bash
+./kairos edit a052c6e0 -t "08:30"          # Edit by partial UUID
+./kairos edit a052c6e0-1984-47b1-...       # Edit by full UUID
+./kairos delete a052c6e0                   # Delete session
 ```
 
 ---
@@ -143,7 +171,9 @@ go build -o kairos ./cmd/samaya
 ```bash
 git clone https://github.com/sriinnu/kairos.git
 cd kairos
-go build -o kairos ./cmd/samaya
+
+# Build with SQLite support (requires gcc)
+CGO_ENABLED=1 go build -o kairos ./cmd/samaya
 
 # Optional: Install to PATH
 # Linux/macOS:
@@ -166,21 +196,21 @@ kairos version
 
 ### Time Tracking
 
-| Command | Alias | Description |
+| Command | Flags | Description |
 |---------|-------|-------------|
-| `clockin [note]` | `in` | Start a work session |
-| `clockout [minutes]` | `out` | End current session |
-| `status` | `st` | Show today's progress |
-| `week` | `wk` | Weekly summary |
-| `month` | `mo` | Monthly statistics |
+| `clockin [note]` | `-t HH:MM` | Start a work session (optionally override time) |
+| `clockout [minutes]` | `-t HH:MM` | End current session |
+| `status` | | Show today's progress |
+| `week` | | Weekly summary |
+| `month` | | Monthly statistics |
 
 ### Session Management
 
-| Command | Description |
-|---------|-------------|
-| `delete <id>` | Delete a session |
-| `edit <id>` | Edit a session |
-| `list` | List recent sessions |
+| Command | Flags | Description |
+|---------|-------|-------------|
+| `sessions` | | List recent sessions with UUIDs |
+| `edit [uuid]` | `-t HH:MM, -n note, -b minutes` | Edit current or specific session |
+| `delete <uuid>` | | Delete a session |
 
 ### AI & Analysis
 

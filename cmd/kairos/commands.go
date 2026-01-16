@@ -1,13 +1,18 @@
 package main
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kairos/internal/ai"
+	"github.com/kairos/internal/config"
+	"github.com/kairos/internal/storage"
 	"github.com/kairos/internal/tracker"
 	"github.com/kairos/internal/work"
 	"github.com/spf13/cobra"
@@ -482,6 +487,302 @@ Use --dry-run to preview changes without applying them.`,
 	},
 }
 
+var exportCmd = &cobra.Command{
+	Use:     "export [format]",
+	Aliases: []string{"exp"},
+	Short:   "Export sessions to CSV, JSON, or HTML",
+	Long: `Export your work sessions to various formats.
+
+Examples:
+  kairos export csv -o hours.csv
+  kairos export json -s 2024-01-01 -e 2024-01-31
+  kairos export html -o report.html`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		format, _ := cmd.Flags().GetString("format")
+		startStr, _ := cmd.Flags().GetString("start")
+		endStr, _ := cmd.Flags().GetString("end")
+		outputPath, _ := cmd.Flags().GetString("output")
+
+		if len(args) > 0 {
+			format = args[0]
+		}
+
+		// Parse dates
+		startDate := time.Now().AddDate(0, 0, -30)
+		endDate := time.Now()
+		if startStr != "" {
+			t, err := time.Parse("2006-01-02", startStr)
+			if err == nil {
+				startDate = t
+			}
+		}
+		if endStr != "" {
+			t, err := time.Parse("2006-01-02", endStr)
+			if err == nil {
+				endDate = t
+			}
+		}
+
+		sessions, err := db.GetSessionsInRange(startDate, endDate)
+		if err != nil {
+			return err
+		}
+
+		var output io.Writer
+		if outputPath != "" {
+			f, err := os.Create(outputPath)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			output = f
+		} else {
+			output = os.Stdout
+		}
+
+		switch format {
+		case "csv":
+			return exportCSV(output, sessions)
+		case "json":
+			return exportJSON(output, sessions)
+		case "html":
+			return exportHTML(output, sessions, startDate, endDate)
+		default:
+			return fmt.Errorf("unknown format: %s (use csv, json, or html)", format)
+		}
+	},
+}
+
+var rangeCmd = &cobra.Command{
+	Use:     "range [start|date]",
+	Short:   "Show hours for a date range",
+	Aliases: []string{"report", "between"},
+	Long: `Show work hours for a custom date range.
+
+Examples:
+  kairos range                          # Last 7 days
+  kairos range --start 2024-01-01 --end 2024-01-31  # January 2024
+  kairos range last-month`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		startStr, _ := cmd.Flags().GetString("start")
+		endStr, _ := cmd.Flags().GetString("end")
+
+		startDate := time.Now().AddDate(0, 0, -7)
+		endDate := time.Now()
+
+		if len(args) > 0 {
+			if args[0] == "last-week" {
+				startDate = time.Now().AddDate(0, 0, -7)
+			} else if args[0] == "last-month" {
+				startDate = time.Now().AddDate(0, -1, 0)
+			} else if t, err := time.Parse("2006-01-02", args[0]); err == nil {
+				startDate = t
+				endDate = t
+			}
+		}
+
+		if startStr != "" {
+			if t, err := time.Parse("2006-01-02", startStr); err == nil {
+				startDate = t
+			}
+		}
+		if endStr != "" {
+			if t, err := time.Parse("2006-01-02", endStr); err == nil {
+				endDate = t
+			}
+		}
+
+		sessions, err := db.GetSessionsInRange(startDate, endDate)
+		if err != nil {
+			return err
+		}
+
+		totalHours := 0.0
+		byDate := make(map[string]float64)
+
+		for _, s := range sessions {
+			if s.EndTime != nil {
+				hours := s.EndTime.Sub(s.StartTime).Hours() - float64(s.BreakMinutes)/60.0
+				totalHours += hours
+				dateKey := s.Date.Format("2006-01-02")
+				byDate[dateKey] += hours
+			}
+		}
+
+		fmt.Printf("Range: %s - %s\n", startDate.Format("Jan 2, 2006"), endDate.Format("Jan 2, 2006"))
+		fmt.Printf("Total: %.2f hours (%d sessions)\n", totalHours, len(sessions))
+		fmt.Println("\nDaily breakdown:")
+		for date, hours := range byDate {
+			fmt.Printf("  %s: %.2fh\n", date, hours)
+		}
+
+		return nil
+	},
+}
+
+var setupCmd = &cobra.Command{
+	Use:   "setup",
+	Short: "Interactive first-time setup",
+	Long: `Run interactive first-time setup for Kairos.
+
+This wizard helps you configure:
+- Weekly work goal
+- Timezone
+- AI provider selection
+- Ollama URL (if using local AI)`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		interactive, _ := cmd.Flags().GetBool("interactive")
+		goal, _ := cmd.Flags().GetFloat64("goal")
+		timezone, _ := cmd.Flags().GetString("timezone")
+		provider, _ := cmd.Flags().GetString("provider")
+
+		if interactive {
+			fmt.Println("=== Kairos Setup Wizard ===")
+			fmt.Println("Interactive mode - feature coming soon")
+			return nil
+		}
+
+		// Apply flags directly
+		cfg.WeeklyGoal = goal
+		if timezone != "" {
+			cfg.TimeZone = timezone
+		}
+		if provider != "" {
+			cfg.AIProvider = config.AIProvider(provider)
+		}
+
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+
+		fmt.Printf("Configuration updated:\n")
+		fmt.Printf("  Weekly goal: %.1f hours\n", cfg.WeeklyGoal)
+		fmt.Printf("  Timezone: %s\n", cfg.TimeZone)
+		fmt.Printf("  AI provider: %s\n", cfg.AIProvider)
+		return nil
+	},
+}
+
+// Export helper functions
+
+func exportCSV(w io.Writer, sessions []storage.WorkSession) error {
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	// Header
+	writer.Write([]string{"Date", "Start", "End", "Break (min)", "Hours", "Note"})
+
+	for _, s := range sessions {
+		hours := 0.0
+		if s.EndTime != nil {
+			hours = s.EndTime.Sub(s.StartTime).Hours() - float64(s.BreakMinutes)/60.0
+		}
+		endStr := ""
+		if s.EndTime != nil {
+			endStr = s.EndTime.Format("15:04")
+		}
+		writer.Write([]string{
+			s.Date.Format("2006-01-02"),
+			s.StartTime.Format("15:04"),
+			endStr,
+			strconv.Itoa(s.BreakMinutes),
+			fmt.Sprintf("%.2f", hours),
+			s.Note,
+		})
+	}
+	return nil
+}
+
+func exportJSON(w io.Writer, sessions []storage.WorkSession) error {
+	type sessionExport struct {
+		Date          string  `json:"date"`
+		StartTime     string  `json:"start_time"`
+		EndTime       string  `json:"end_time,omitempty"`
+		BreakMinutes  int     `json:"break_minutes"`
+		HoursWorked   float64 `json:"hours_worked"`
+		Note          string  `json:"note,omitempty"`
+	}
+
+	exports := make([]sessionExport, 0, len(sessions))
+	for _, s := range sessions {
+		hours := 0.0
+		if s.EndTime != nil {
+			hours = s.EndTime.Sub(s.StartTime).Hours() - float64(s.BreakMinutes)/60.0
+		}
+		exp := sessionExport{
+			Date:         s.Date.Format("2006-01-02"),
+			StartTime:    s.StartTime.Format("15:04"),
+			BreakMinutes: s.BreakMinutes,
+			HoursWorked:  hours,
+			Note:         s.Note,
+		}
+		if s.EndTime != nil {
+			exp.EndTime = s.EndTime.Format("15:04")
+		}
+		exports = append(exports, exp)
+	}
+
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(map[string]interface{}{
+		"export_date": time.Now().Format("2006-01-02"),
+		"total_sessions": len(sessions),
+		"sessions": exports,
+	})
+}
+
+func exportHTML(w io.Writer, sessions []storage.WorkSession, start, end time.Time) error {
+	totalHours := 0.0
+	byDate := make(map[string]float64)
+
+	for _, s := range sessions {
+		if s.EndTime != nil {
+			hours := s.EndTime.Sub(s.StartTime).Hours() - float64(s.BreakMinutes)/60.0
+			totalHours += hours
+			byDate[s.Date.Format("2006-01-02")] += hours
+		}
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <title>Kairos Report</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+        h1 { color: #333; }
+        .summary { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        table { width: 100%%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        th { background: #f9f9f9; }
+        .total { font-weight: bold; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>Kairos Work Report</h1>
+    <p>Period: %s - %s</p>
+    <div class="summary">
+        <p class="total">Total Hours: %.2f</p>
+        <p>Sessions: %d</p>
+    </div>
+    <h2>Daily Breakdown</h2>
+    <table>
+        <tr><th>Date</th><th>Hours</th></tr>
+`, start.Format("Jan 2, 2006"), end.Format("Jan 2, 2006"), totalHours, len(sessions))
+
+	for date, hours := range byDate {
+		html += fmt.Sprintf("        <tr><td>%s</td><td>%.2f</td></tr>\n", date, hours)
+	}
+
+	html += `    </table>
+</body>
+</html>`
+
+	_, err := w.Write([]byte(html))
+	return err
+}
+
 func init() {
 	editCmd.Flags().IntP("break", "b", 0, "Break time in minutes")
 	editCmd.Flags().StringP("note", "n", "", "Add a note")
@@ -501,4 +802,20 @@ func init() {
 	batchCmd.Flags().StringP("note", "n", "", "Note to set")
 	batchCmd.Flags().IntP("break", "b", 0, "Break time in minutes")
 	batchCmd.Flags().Bool("dry-run", false, "Preview changes without applying")
+
+	// Export command
+	exportCmd.Flags().StringP("format", "f", "csv", "Output format: csv, json, html")
+	exportCmd.Flags().StringP("start", "s", "", "Start date (YYYY-MM-DD)")
+	exportCmd.Flags().StringP("end", "e", "", "End date (YYYY-MM-DD)")
+	exportCmd.Flags().StringP("output", "o", "", "Output file (stdout if empty)")
+
+	// Range command
+	rangeCmd.Flags().StringP("start", "s", "", "Start date (YYYY-MM-DD)")
+	rangeCmd.Flags().StringP("end", "e", "", "End date (YYYY-MM-DD)")
+
+	// Setup command
+	setupCmd.Flags().Bool("interactive", false, "Run in interactive mode")
+	setupCmd.Flags().Float64("goal", 38.5, "Weekly goal in hours")
+	setupCmd.Flags().String("timezone", "", "Timezone (e.g., America/New_York)")
+	setupCmd.Flags().String("provider", "ollama", "AI provider (ollama, openai, claude, gemini)")
 }

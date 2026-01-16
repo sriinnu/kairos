@@ -78,6 +78,9 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(batchCmd)
+	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(rangeCmd)
+	rootCmd.AddCommand(setupCmd)
 
 	// Enable completion for all commands
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

@@ -351,3 +351,44 @@ func (dq *DataQuerier) getHistorySummary(monthsBack int) string {
 
 	return sb.String()
 }
+
+// GetTodayHours returns hours worked today (for offline fallback)
+func (dq *DataQuerier) GetTodayHours() (float64, error) {
+	progress, err := dq.tracker.GetTodayProgress()
+	if err != nil {
+		return 0, err
+	}
+	return progress.TotalHours, nil
+}
+
+// GetWeekHours returns hours worked this week (for offline fallback)
+func (dq *DataQuerier) GetWeekHours() (float64, error) {
+	progress, err := dq.tracker.GetWeeklyProgress()
+	if err != nil {
+		return 0, err
+	}
+	return progress.TotalHours, nil
+}
+
+// GetHoursInRange returns total hours worked in a date range
+func (dq *DataQuerier) GetHoursInRange(start, end time.Time) (float64, error) {
+	sessions, err := dq.db.GetSessionsInRange(start, end)
+	if err != nil {
+		return 0, err
+	}
+
+	total := 0.0
+	for _, s := range sessions {
+		if s.EndTime != nil {
+			hours := s.EndTime.Sub(s.StartTime).Hours()
+			hours -= float64(s.BreakMinutes) / 60.0
+			total += hours
+		}
+	}
+	return total, nil
+}
+
+// GetSessionsInRange returns sessions in a date range
+func (dq *DataQuerier) GetSessionsInRange(start, end time.Time) ([]storage.WorkSession, error) {
+	return dq.db.GetSessionsInRange(start, end)
+}

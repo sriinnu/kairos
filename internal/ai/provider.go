@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kairos/internal/config"
@@ -72,25 +73,103 @@ func (s *AIService) Name() string {
 // Ask sends a question to the AI
 func (s *AIService) Ask(question string, ctx *WorkContext) (string, error) {
 	if s.provider == nil {
-		return "", fmt.Errorf("AI not configured. Use 'kairos config --provider ollama|openai|claude|gemini'")
+		return s.offlineAsk(question, ctx), nil
 	}
+
+	if !s.provider.IsAvailable() {
+		return s.offlineAsk(question, ctx), nil
+	}
+
 	return s.provider.Ask(question, ctx)
 }
 
 // Predict generates predictions
 func (s *AIService) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	if s.provider == nil {
-		return "", fmt.Errorf("AI not configured")
+	if s.provider == nil || !s.provider.IsAvailable() {
+		return s.offlinePredict(weekProgress), nil
 	}
 	return s.provider.Predict(weekProgress)
 }
 
 // Analyze provides work pattern analysis
 func (s *AIService) Analyze(dq *DataQuerier) (string, error) {
-	if s.provider == nil {
-		return "", fmt.Errorf("AI not configured")
+	if s.provider == nil || !s.provider.IsAvailable() {
+		return s.offlineAnalyze(dq), nil
 	}
 	return s.provider.Analyze(dq)
+}
+
+// offlineAsk provides rule-based responses when AI is unavailable
+func (s *AIService) offlineAsk(question string, ctx *WorkContext) string {
+	question = strings.ToLower(question)
+
+	// Check for common questions and provide helpful responses
+	if strings.Contains(question, "leave") || strings.Contains(question, "done") || strings.Contains(question, "go home") {
+		if ctx.RemainingHours > 0 {
+			return fmt.Sprintf("You need %.2f more hours to reach your weekly goal. At your current pace, plan to work about %.2f hours per remaining day.", ctx.RemainingHours, ctx.DailyTarget)
+		}
+		return "You've exceeded your weekly goal! You're done for the week. Great work!"
+	}
+
+	if strings.Contains(question, "hours today") || strings.Contains(question, "worked today") {
+		return fmt.Sprintf("You've worked %.2f hours today.", ctx.TodayHours)
+	}
+
+	if strings.Contains(question, "hours left") || strings.Contains(question, "remaining") {
+		if ctx.RemainingHours > 0 {
+			return fmt.Sprintf("You have %.2f hours remaining to reach your weekly goal (%.2f hours/day over %d days).", ctx.RemainingHours, ctx.DailyTarget, ctx.RemainingDays)
+		}
+		return "You've reached your weekly goal! No more hours needed."
+	}
+
+	if strings.Contains(question, "behind") || strings.Contains(question, "track") {
+		if ctx.RemainingDays > 0 && ctx.DailyTarget > 0 {
+			return fmt.Sprintf("You need %.2f hours/day to hit your goal. You have %d days left.", ctx.DailyTarget, ctx.RemainingDays)
+		}
+		return "You're on track or ahead of schedule!"
+	}
+
+	// Default helpful response
+	return fmt.Sprintf("Current status: %.2f/%.2f hours this week (%.2f remaining). You need %.2f hours/day over %d days. AI is unavailable - install Ollama for smart insights!", ctx.WeekHours, ctx.WeeklyGoal, ctx.RemainingHours, ctx.DailyTarget, ctx.RemainingDays)
+}
+
+// offlinePredict provides rule-based predictions
+func (s *AIService) offlinePredict(weekProgress *tracker.WeekProgress) string {
+	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	goal := work.WeeklyGoalHours
+
+	if weekProgress.RemainingHours <= 0 {
+		return "You've already reached your weekly goal! Well done!"
+	}
+
+	if remainingDays <= 0 {
+		return fmt.Sprintf("No work days left this week. You're %.2f hours short of your goal.", weekProgress.RemainingHours)
+	}
+
+	dailyTarget := weekProgress.RemainingHours / float64(remainingDays)
+
+	return fmt.Sprintf("Prediction: You need %.2f more hours to reach your %.2fh weekly goal. That's %.2f hours/day over %d remaining work days. AI unavailable - install Ollama for detailed analysis!", weekProgress.RemainingHours, goal, dailyTarget, remainingDays)
+}
+
+// offlineAnalyze provides basic analysis without AI
+func (s *AIService) offlineAnalyze(dq *DataQuerier) string {
+	// Get basic stats
+	week, _ := dq.GetWeekHours()
+	goal := work.WeeklyGoalHours
+
+	if week >= goal {
+		return "You've already hit your weekly goal! Great consistency this week."
+	}
+
+	remaining := goal - week
+	daysLeft := work.RemainingWorkDaysInWeek(time.Now())
+
+	if daysLeft > 0 {
+		daily := remaining / float64(daysLeft)
+		return fmt.Sprintf("Analysis: %.2f/%.2f hours this week (%.2f remaining). At %.2fh/day over %d days, you can still reach your goal.", week, goal, remaining, daily, daysLeft)
+	}
+
+	return fmt.Sprintf("Analysis: You've logged %.2f/%.2f hours this week with no days left. Install Ollama for smarter insights!", week, goal)
 }
 
 // WorkContext contains all the work data for AI queries

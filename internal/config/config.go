@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,6 +24,7 @@ type Config struct {
 	DatabasePath string     `yaml:"DatabasePath"`
 	WeeklyGoal   float64    `yaml:"WeeklyGoal"`
 	AIProvider   AIProvider `yaml:"AIProvider"`
+	TimeZone     string     `yaml:"TimeZone"`
 
 	// Ollama settings
 	OllamaURL   string `yaml:"OllamaURL"`
@@ -39,6 +41,10 @@ type Config struct {
 	// Gemini settings
 	GeminiModel  string `yaml:"GeminiModel"`
 	GeminiAPIKey string `yaml:"GeminiAPIKey"`
+
+	// Auto-clockout settings
+	AutoClockoutMinutes int  `yaml:"AutoClockoutMinutes"`
+	AutoArchive         bool `yaml:"AutoArchive"`
 }
 
 func Load() (*Config, error) {
@@ -103,15 +109,35 @@ func getConfigPath() string {
 func getDefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
-		DatabasePath: filepath.Join(home, ".kairos", "data.db"),
-		WeeklyGoal:   38.5,
-		AIProvider:   ProviderOllama,
-		OllamaURL:    "http://localhost:11434",
-		OllamaModel:  "llama3.2",
-		OpenAIModel:  "gpt-4",
-		ClaudeModel:  "claude-sonnet-4-20250514",
-		GeminiModel:  "gemini-2.0-flash",
+		DatabasePath:       filepath.Join(home, ".kairos", "data.db"),
+		WeeklyGoal:         38.5,
+		AIProvider:         ProviderOllama,
+		TimeZone:           time.Local.String(),
+		OllamaURL:          "http://localhost:11434",
+		OllamaModel:        "llama3.2",
+		OpenAIModel:        "gpt-4",
+		ClaudeModel:        "claude-sonnet-4-20250514",
+		GeminiModel:        "gemini-2.0-flash",
+		AutoClockoutMinutes: 0, // 0 = disabled
+		AutoArchive:         true,
 	}
+}
+
+// GetLocation returns the time.Location for this config
+func (c *Config) GetLocation() *time.Location {
+	if c.TimeZone == "" || c.TimeZone == "local" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(c.TimeZone)
+	if err != nil {
+		return time.Local
+	}
+	return loc
+}
+
+// Now returns the current time in the configured timezone
+func (c *Config) Now() time.Time {
+	return time.Now().In(c.GetLocation())
 }
 
 // GetAPIKey returns the API key for the current provider

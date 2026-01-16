@@ -196,28 +196,39 @@ kairos version
 
 ### Time Tracking
 
-| Command | Flags | Description |
-|---------|-------|-------------|
-| `clockin [note]` | `-t HH:MM` | Start a work session (optionally override time) |
-| `clockout [minutes]` | `-t HH:MM` | End current session |
-| `status` | | Show today's progress |
-| `week` | | Weekly summary |
-| `month` | | Monthly statistics |
+| Command | Aliases | Flags | Description |
+|---------|---------|-------|-------------|
+| `clockin [note]` | `in`, `ci` | `-t HH:MM` | Start a work session |
+| `clockout [minutes]` | `out`, `co` | `-t HH:MM, -b minutes` | End current session |
+| `status` | `st`, `today` | | Show today's progress |
+| `week [date]` | `w` | | Weekly summary |
+| `month` | `m` | | Monthly statistics |
 
 ### Session Management
 
-| Command | Flags | Description |
-|---------|-------|-------------|
-| `sessions` | | List recent sessions with UUIDs |
-| `edit [uuid]` | `-t HH:MM, -n note, -b minutes` | Edit current or specific session |
-| `delete <uuid>` | | Delete a session |
+| Command | Aliases | Flags | Description |
+|---------|---------|-------|-------------|
+| `sessions` | `ls`, `list` | | List recent sessions with UUIDs |
+| `edit [uuid]` | `e`, `update` | `-t HH:MM, -n note, -b minutes` | Edit session |
+| `delete <uuid>` | `del`, `rm`, `remove` | `-f` | Delete a session |
+| `batch <cmd>` | `bulk` | `--ids, --date, --dry-run` | Batch operations |
 
 ### AI & Analysis
 
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `ask "question"` | `a`, `ai` | Ask AI about your hours |
+| `predict` | | AI goal completion prediction |
+| `analyze` | | AI work pattern analysis |
+
+### Configuration & Utilities
+
 | Command | Description |
 |---------|-------------|
-| `ask "question"` | Ask AI about your hours |
-| `predict` | AI goal completion prediction |
+| `config` | Show current configuration |
+| `completion [shell]` | Generate shell completion (bash/zsh/fish/powershell) |
+| `archive` | Archive old months to markdown |
+| `history` | Show historical summary |
 
 ### Visualization
 
@@ -241,15 +252,42 @@ kairos version
 | Command | Description |
 |---------|-------------|
 | `config` | Show current settings |
-| `config set <key> <value>` | Update setting |
+
+### Shell Completion
+
+Enable tab completion for your shell:
+
+```bash
+# Bash (Linux)
+kairos completion bash > /etc/bash_completion.d/kairos
+
+# Zsh
+kairos completion zsh > "${fpath[1]}/_kairos"
+
+# Fish
+kairos completion fish > ~/.config/fish/completions/kairos.fish
+
+# PowerShell
+kairos completion powershell > kairos.ps1
+. kairos.ps1
+```
 
 ---
 
 ## AI Integration
 
-Kairos uses local LLMs via [Ollama](https://ollama.com) to provide intelligent, context-aware responses.
+Kairos supports multiple AI providers for intelligent, context-aware responses.
 
-### Setup Ollama
+### Supported Providers
+
+| Provider | Type | Setup |
+|----------|------|-------|
+| **Ollama** | Local | Install [Ollama](https://ollama.com), run `ollama serve` |
+| **OpenAI** | Cloud | Set `OPENAI_API_KEY` environment variable |
+| **Claude** | Cloud | Set `ANTHROPIC_API_KEY` environment variable |
+| **Gemini** | Cloud | Set `GEMINI_API_KEY` environment variable |
+
+### Setup Ollama (Recommended for Privacy)
 
 ```bash
 # Install Ollama
@@ -262,6 +300,18 @@ ollama serve
 ollama pull llama3.2
 ```
 
+### Configure AI Provider
+
+```bash
+# Set provider in config (edit ~/.kairos.yaml)
+ai_provider: ollama  # or openai, claude, gemini
+
+# For cloud providers, set environment variables
+export OPENAI_API_KEY="your-key-here"
+export ANTHROPIC_API_KEY="your-key-here"
+export GEMINI_API_KEY="your-key-here"
+```
+
 ### AI Commands
 
 ```bash
@@ -272,6 +322,9 @@ kairos ask "Am I on track for my weekly goal?"
 
 # Get predictions
 kairos predict
+
+# Analyze work patterns
+kairos analyze
 ```
 
 ### AI-Powered MCP Tools
@@ -545,7 +598,7 @@ cd kairos
 go mod download
 
 # Build
-go build -o kairos ./cmd/samaya
+go build -o kairos ./cmd/kairos
 
 # Run tests
 go test ./...
@@ -623,7 +676,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Report bugs
 - Suggest features
 - Improve documentation
-- Add tests
+- Add tests (see `internal/*/*_test.go`)
 - Submit pull requests
 
 ### Development Setup
@@ -632,7 +685,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
 3. Make your changes
 4. Run tests: `go test ./...`
-5. Submit a Pull Request
+5. Verify build: `go build -o kairos ./cmd/kairos`
+6. Submit a Pull Request
 
 ---
 

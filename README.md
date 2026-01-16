@@ -107,7 +107,7 @@ A powerful Model Context Protocol server that enables AI assistants to interact 
 # Clone and build
 git clone https://github.com/sriinnu/kairos.git
 cd kairos
-CGO_ENABLED=1 go build -o kairos ./cmd/samaya
+CGO_ENABLED=1 go build -o kairos ./cmd/kairos
 
 # Start your first session
 ./kairos clockin "Working on feature X"
@@ -173,7 +173,7 @@ git clone https://github.com/sriinnu/kairos.git
 cd kairos
 
 # Build with SQLite support (requires gcc)
-CGO_ENABLED=1 go build -o kairos ./cmd/samaya
+CGO_ENABLED=1 go build -o kairos ./cmd/kairos
 
 # Optional: Install to PATH
 # Linux/macOS:
@@ -551,20 +551,20 @@ go build -o kairos ./cmd/samaya
 go test ./...
 
 # Build with race detection
-go build -race -o kairos-race ./cmd/samaya
+go build -race -o kairos-race ./cmd/kairos
 ```
 
 ### Building for Different Platforms
 
 ```bash
 # Linux
-GOOS=linux GOARCH=amd64 go build -o kairos-linux-amd64 ./cmd/samaya
+GOOS=linux GOARCH=amd64 go build -o kairos-linux-amd64 ./cmd/kairos
 
 # macOS
-GOOS=darwin GOARCH=amd64 go build -o kairos-darwin-amd64 ./cmd/samaya
+GOOS=darwin GOARCH=amd64 go build -o kairos-darwin-amd64 ./cmd/kairos
 
 # Windows
-GOOS=windows GOARCH=amd64 go build -o kairos-windows-amd64.exe ./cmd/samaya
+GOOS=windows GOARCH=amd64 go build -o kairos-windows-amd64.exe ./cmd/kairos
 ```
 
 ---

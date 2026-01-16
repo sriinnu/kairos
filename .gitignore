@@ -1,6 +1,6 @@
 # Binaries
-kairos
-samaya
+/kairos
+/samaya
 *.exe
 
 # Data

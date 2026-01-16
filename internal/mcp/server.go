@@ -12,23 +12,24 @@ import (
 	"github.com/kairos/internal/mcp/core"
 	"github.com/kairos/internal/storage"
 	"github.com/kairos/internal/tracker"
+	"github.com/kairos/internal/work"
 )
 
 // Server wraps the core MCP server with Kairos-specific functionality
 type Server struct {
 	*core.Server
-	db     *storage.Database
-	ollama *ai.Ollama
-	port   int
+	db       *storage.Database
+	aiService *ai.AIService
+	port     int
 }
 
 // NewServer creates a new Kairos MCP server
-func NewServer(db *storage.Database, ollama *ai.Ollama, port int) *Server {
+func NewServer(db *storage.Database, aiSvc *ai.AIService, port int) *Server {
 	server := &Server{
-		Server: core.NewServer(port),
-		db:     db,
-		ollama: ollama,
-		port:   port,
+		Server:   core.NewServer(port),
+		db:       db,
+		aiService: aiSvc,
+		port:     port,
 	}
 
 	server.registerTools()
@@ -36,7 +37,7 @@ func NewServer(db *storage.Database, ollama *ai.Ollama, port int) *Server {
 }
 
 func (s *Server) registerTools() {
-	t := tracker.New(s.db, 38.5)
+	t := tracker.NewWithDefaults(s.db)
 
 	// THINK - Reasoning and analysis
 	s.AddHandler(
@@ -68,8 +69,9 @@ func (s *Server) registerTools() {
 			}
 
 			// Use AI if available
-			if s.ollama != nil && s.ollama.IsAvailable() {
-				result["ai_response"], _ = s.ollama.Ask(question, nil, weekProgress)
+			if s.aiService != nil && s.aiService.IsAvailable() {
+				ctx, _ := ai.BuildWorkContext(t)
+				result["ai_response"], _ = s.aiService.Ask(question, ctx)
 			} else {
 				result["reasoning"] = "Analysis based on your work patterns"
 			}
@@ -93,7 +95,7 @@ func (s *Server) registerTools() {
 			weekProgress, _ := t.GetWeeklyProgress()
 			monthProgress, _ := t.GetMonthlyProgress()
 
-			progressRatio := weekProgress.TotalHours / 38.5
+			progressRatio := weekProgress.TotalHours / work.WeeklyGoalHours
 			consistency := float64(weekProgress.DaysWorkedCount) / 7.0
 
 			remainingDays := 7 - weekProgress.DaysWorkedCount
@@ -149,12 +151,13 @@ func (s *Server) registerTools() {
 			}
 
 			consciousness := map[string]interface{}{
-				"timestamp":   time.Now().Format(time.RFC3339),
-				"time_of_day": timeOfDay,
-				"is_working":  activeSession != nil,
-				"today_hours": dayProgress.TotalHours,
-				"week_hours":  weekProgress.TotalHours,
-				"goal_progress": weekProgress.TotalHours / 38.5 * 100,
+				"timestamp":         time.Now().Format(time.RFC3339),
+				"time_of_day":       timeOfDay,
+				"is_working":        activeSession != nil,
+				"today_hours":       dayProgress.TotalHours,
+				"week_hours":        weekProgress.TotalHours,
+				"weekly_goal":       work.WeeklyGoalHours,
+				"goal_progress":     weekProgress.TotalHours / work.WeeklyGoalHours * 100,
 				"remaining_to_goal": weekProgress.RemainingHours,
 			}
 
@@ -193,7 +196,7 @@ func (s *Server) registerTools() {
 }
 
 // RunServer starts the MCP server
-func RunServer(db *storage.Database, ollama *ai.Ollama, port int) error {
+func RunServer(db *storage.Database, aiSvc *ai.AIService, port int) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -205,6 +208,6 @@ func RunServer(db *storage.Database, ollama *ai.Ollama, port int) error {
 		cancel()
 	}()
 
-	server := NewServer(db, ollama, port)
+	server := NewServer(db, aiSvc, port)
 	return server.Start(ctx)
 }

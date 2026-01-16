@@ -144,23 +144,31 @@ func persistSearch(db *storage.Database, args map[string]interface{}) (interface
 
 	var results []Memory
 	for _, m := range memories {
-		match := false
+		// Check query match
+		queryMatch := true // default true if no query
 		if query != "" {
-			if strings.Contains(strings.ToLower(m.Key), strings.ToLower(query)) ||
-				strings.Contains(strings.ToLower(m.Value), strings.ToLower(query)) {
-				match = true
+			queryMatch = false
+			queryLower := strings.ToLower(query)
+			if strings.Contains(strings.ToLower(m.Key), queryLower) ||
+				strings.Contains(strings.ToLower(m.Value), queryLower) {
+				queryMatch = true
 			}
 			for _, tag := range m.Tags {
-				if strings.Contains(strings.ToLower(tag), strings.ToLower(query)) {
-					match = true
+				if strings.Contains(strings.ToLower(tag), queryLower) {
+					queryMatch = true
 					break
 				}
 			}
 		}
-		if category != "" && m.Category == category {
-			match = true
+
+		// Check category match
+		categoryMatch := true // default true if no category
+		if category != "" {
+			categoryMatch = m.Category == category
 		}
-		if match {
+
+		// Both conditions must be true (AND logic)
+		if queryMatch && categoryMatch {
 			results = append(results, m)
 		}
 	}

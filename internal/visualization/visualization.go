@@ -83,8 +83,8 @@ func (v *Visualizer) GenerateWeekSVG(progress *tracker.WeekProgress) string {
 </svg>`,
 		width, height, width, height,
 		width, height,
-		width/2, 20,
-		width/2, 45, progress.WeekStart.Format("Jan 2"), progress.WeekEnd.Format("Jan 2"), progress.TotalHours,
+		width/2,
+		width/2, progress.WeekStart.Format("Jan 2"), progress.WeekEnd.Format("Jan 2"), progress.TotalHours,
 		padding, height-padding-30, width-padding, height-padding-30,
 		width-padding+10, height-padding-35,
 		bars.String(),
@@ -141,13 +141,14 @@ func (v *Visualizer) GenerateMonthSVG(progress *tracker.MonthProgress) string {
 </svg>`,
 		width, height, width, height,
 		width, height,
-		width/2, 20,
-		width/2, 45, progress.Month.Format("January 2006"), progress.TotalHours, progress.DailyAverage,
+		width/2,
+		width/2, progress.Month.Format("January 2006"), progress.TotalHours, progress.DailyAverage,
 		width-100, 120,
 		width-100, 120,
 		2*3.14*60*progress.TotalHours/154, 2*3.14*60,
 		width-100, 120,
 		width-100, 125,
+		progress.TotalHours/154*100, // percentage of monthly goal (4 weeks * 38.5)
 		bars.String(),
 	)
 }

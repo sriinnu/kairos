@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kairos/internal/storage"
+	"github.com/kairos/internal/work"
 )
 
 type Tracker struct {
@@ -13,9 +14,20 @@ type Tracker struct {
 }
 
 func New(db *storage.Database, weeklyGoal float64) *Tracker {
+	if weeklyGoal <= 0 {
+		weeklyGoal = work.WeeklyGoalHours
+	}
 	return &Tracker{
 		db:         db,
 		weeklyGoal: weeklyGoal,
+	}
+}
+
+// NewWithDefaults creates a tracker with default work rules
+func NewWithDefaults(db *storage.Database) *Tracker {
+	return &Tracker{
+		db:         db,
+		weeklyGoal: work.WeeklyGoalHours,
 	}
 }
 
@@ -62,6 +74,10 @@ func (t *Tracker) ClockInWithTime(note, timeStr string) (*storage.WorkSession, e
 }
 
 func (t *Tracker) ClockOut(id string, breakMinutes int, note string) (*storage.WorkSession, error) {
+	return t.ClockOutWithTime(id, breakMinutes, note, "")
+}
+
+func (t *Tracker) ClockOutWithTime(id string, breakMinutes int, note string, timeStr string) (*storage.WorkSession, error) {
 	session, err := t.db.GetSessionByID(id)
 	if err != nil {
 		return nil, err
@@ -70,10 +86,19 @@ func (t *Tracker) ClockOut(id string, breakMinutes int, note string) (*storage.W
 		return nil, fmt.Errorf("session not found")
 	}
 
-	now := time.Now()
-	session.EndTime = &now
+	endTime := time.Now()
+	if timeStr != "" {
+		parsed, err := parseTime(timeStr)
+		if err == nil {
+			endTime = parsed
+		}
+	}
+
+	session.EndTime = &endTime
 	session.BreakMinutes = breakMinutes
-	session.Note = note
+	if note != "" {
+		session.Note = note
+	}
 
 	if err := t.db.UpdateSession(session); err != nil {
 		return nil, err
@@ -107,7 +132,7 @@ func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
 	for _, s := range sessions {
 		if s.EndTime != nil {
 			hours := s.EndTime.Sub(s.StartTime).Hours()
-			progress.TotalHours -= float64(s.BreakMinutes) / 60.0
+			hours -= float64(s.BreakMinutes) / 60.0
 			progress.TotalHours += hours
 		} else {
 			// This is the current open session
@@ -119,8 +144,20 @@ func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
 }
 
 func (t *Tracker) GetWeeklyProgress() (*WeekProgress, error) {
-	now := time.Now()
-	weekStart := getWeekStart(now)
+	return t.GetWeekProgressForDate(time.Now())
+}
+
+func (t *Tracker) GetLastWeekProgress() (*WeekProgress, error) {
+	lastWeekStart := getWeekStart(time.Now()).AddDate(0, 0, -7)
+	return t.computeWeekProgress(lastWeekStart)
+}
+
+func (t *Tracker) GetWeekProgressForDate(date time.Time) (*WeekProgress, error) {
+	weekStart := getWeekStart(date)
+	return t.computeWeekProgress(weekStart)
+}
+
+func (t *Tracker) computeWeekProgress(weekStart time.Time) (*WeekProgress, error) {
 	weekEnd := weekStart.AddDate(0, 0, 6)
 
 	sessions, err := t.db.GetSessionsInRange(weekStart, weekEnd)
@@ -188,17 +225,42 @@ func (t *Tracker) GetActiveSession() (*storage.WorkSession, error) {
 }
 
 func (t *Tracker) EditSession(id string, breakMinutes int, note string, timeStr string) error {
+	return t.EditSessionSelective(id, breakMinutes, true, note, true, timeStr, "")
+}
+
+// EditSessionSelective updates only the fields that are explicitly changed
+func (t *Tracker) EditSessionSelective(id string, breakMinutes int, breakChanged bool, note string, noteChanged bool, startTimeStr string, endTimeStr string) error {
 	session, err := t.db.GetSessionByID(id)
 	if err != nil {
 		return err
 	}
-	session.BreakMinutes = breakMinutes
-	session.Note = note
+	if session == nil {
+		return fmt.Errorf("session not found: %s", id)
+	}
 
-	if timeStr != "" {
-		newTime, err := parseTime(timeStr)
+	// Only update break if explicitly changed
+	if breakChanged {
+		session.BreakMinutes = breakMinutes
+	}
+
+	// Only update note if explicitly changed
+	if noteChanged {
+		session.Note = note
+	}
+
+	// Update start time if provided
+	if startTimeStr != "" {
+		newTime, err := parseTime(startTimeStr)
 		if err == nil {
 			session.StartTime = newTime
+		}
+	}
+
+	// Update end time if provided
+	if endTimeStr != "" {
+		newTime, err := parseTime(endTimeStr)
+		if err == nil {
+			session.EndTime = &newTime
 		}
 	}
 

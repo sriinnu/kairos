@@ -300,6 +300,33 @@ func (d *Database) DeleteSession(id string) error {
 	return err
 }
 
+// DeleteSessionsInRange removes all sessions within a date range
+func (d *Database) DeleteSessionsInRange(start, end time.Time) error {
+	_, err := d.db.Exec(
+		"DELETE FROM work_sessions WHERE date >= ? AND date <= ?",
+		start.Format("2006-01-02"),
+		end.Format("2006-01-02"),
+	)
+	return err
+}
+
+// GetOldestSessionDate returns the date of the oldest session
+func (d *Database) GetOldestSessionDate() (*time.Time, error) {
+	var dateStr sql.NullString
+	err := d.db.QueryRow("SELECT MIN(date) FROM work_sessions").Scan(&dateStr)
+	if err != nil {
+		return nil, err
+	}
+	if !dateStr.Valid {
+		return nil, nil
+	}
+	t, err := time.Parse("2006-01-02", dateStr.String)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 // Exec executes a raw SQL query (for MCP tools)
 func (d *Database) Exec(query string, args ...interface{}) error {
 	_, err := d.db.Exec(query, args...)

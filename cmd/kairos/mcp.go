@@ -55,7 +55,7 @@ AI assistants can connect to: http://localhost:8765/mcp
 		fmt.Printf("Port: http://localhost:%d/mcp\n", mcpPort)
 		fmt.Printf("Press Ctrl+C to stop\n\n")
 
-		return mcp.RunServer(db, ollamaService, mcpPort)
+		return mcp.RunServer(db, aiService, mcpPort)
 	},
 }
 
@@ -65,10 +65,10 @@ var mcpToolsCmd = &cobra.Command{
 	Long: `List all available MCP tools with their descriptions and parameters.
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		server := mcp.NewServer(db, ollamaService, 0)
+		server := mcp.NewServer(db, aiService, 0)
 
 		fmt.Println("Available MCP Tools:")
-		fmt.Println("====================\n")
+		fmt.Println("====================")
 
 		tools := server.ToolRegistry.List()
 		for _, tool := range tools {
@@ -107,7 +107,7 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		toolName := args[0]
 
-		server := mcp.NewServer(db, ollamaService, 0)
+		server := mcp.NewServer(db, aiService, 0)
 		_, exists := server.ToolRegistry.Get(toolName)
 		if !exists {
 			return fmt.Errorf("unknown tool: %s", toolName)

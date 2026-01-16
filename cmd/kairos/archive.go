@@ -13,7 +13,7 @@ import (
 var archiveCmd = &cobra.Command{
 	Use:   "archive",
 	Short: "Archive old months to markdown",
-	Long: `Archive past months' data to markdown files in ~/.samaya/history/
+	Long: `Archive past months' data to markdown files in ~/.kairos/history/
 This keeps SQLite lean while preserving historical data.`,
 }
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,4 +142,73 @@ func (c *Config) GetModel() string {
 	default:
 		return ""
 	}
+}
+
+// ValidationError represents a configuration validation error
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("config validation error: %s - %s", e.Field, e.Message)
+}
+
+// Validate checks the configuration for common issues
+func (c *Config) Validate() error {
+	// Check for missing required fields based on provider
+	switch c.AIProvider {
+	case ProviderOllama:
+		if c.OllamaURL == "" {
+			return &ValidationError{Field: "OllamaURL", Message: "Ollama URL is required"}
+		}
+	case ProviderOpenAI:
+		if c.OpenAIModel == "" {
+			return &ValidationError{Field: "OpenAIModel", Message: "OpenAI model is required"}
+		}
+		if c.OpenAIAPIKey == "" {
+			return &ValidationError{Field: "OpenAIAPIKey", Message: "OpenAI API key is required (set OPENAI_API_KEY env var)"}
+		}
+	case ProviderClaude:
+		if c.ClaudeModel == "" {
+			return &ValidationError{Field: "ClaudeModel", Message: "Claude model is required"}
+		}
+		if c.ClaudeAPIKey == "" {
+			return &ValidationError{Field: "ClaudeAPIKey", Message: "Claude API key is required (set ANTHROPIC_API_KEY env var)"}
+		}
+	case ProviderGemini:
+		if c.GeminiModel == "" {
+			return &ValidationError{Field: "GeminiModel", Message: "Gemini model is required"}
+		}
+		if c.GeminiAPIKey == "" {
+			return &ValidationError{Field: "GeminiAPIKey", Message: "Gemini API key is required (set GEMINI_API_KEY env var)"}
+		}
+	}
+
+	// Validate weekly goal is positive
+	if c.WeeklyGoal <= 0 {
+		return &ValidationError{Field: "WeeklyGoal", Message: "Weekly goal must be positive"}
+	}
+
+	// Validate database path is set
+	if c.DatabasePath == "" {
+		return &ValidationError{Field: "DatabasePath", Message: "Database path is required"}
+	}
+
+	return nil
+}
+
+// IsConfigured returns true if the current provider appears to be properly configured
+func (c *Config) IsConfigured() bool {
+	switch c.AIProvider {
+	case ProviderOllama:
+		return c.OllamaURL != ""
+	case ProviderOpenAI:
+		return c.OpenAIAPIKey != ""
+	case ProviderClaude:
+		return c.ClaudeAPIKey != ""
+	case ProviderGemini:
+		return c.GeminiAPIKey != ""
+	}
+	return false
 }

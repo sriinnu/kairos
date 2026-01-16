@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,16 +14,17 @@ import (
 )
 
 var clockinCmd = &cobra.Command{
-	Use:   "clockin [note]",
-	Short: "Start a work session",
-	Long:  `Clock in to start tracking your work hours. Optionally add a note or override time with -t.`,
+	Use:     "clockin [note]",
+	Aliases: []string{"in", "ci"},
+	Short:   "Start a work session",
+	Long:    `Clock in to start tracking your work hours. Optionally add a note or override time with -t.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		progress, err := trackerService.GetTodayProgress()
 		if err != nil {
 			return err
 		}
 		if progress.CurrentSessionID != "" {
-			return fmt.Errorf("already clocked in! Use 'samaya clockout' first")
+			return fmt.Errorf("already clocked in! Use 'kairos clockout' first")
 		}
 
 		// Join all args as note (don't skip colons - notes can contain them)
@@ -43,8 +45,9 @@ var clockinCmd = &cobra.Command{
 }
 
 var clockoutCmd = &cobra.Command{
-	Use:   "clockout [break-minutes]",
-	Short: "End current work session",
+	Use:     "clockout [break-minutes]",
+	Aliases: []string{"out", "co"},
+	Short:   "End current work session",
 	Long: `Clock out to end your current work session.
 Break time defaults based on day (30 min Mon-Thu, 0 on Friday).
 Override with argument or use -b flag.`,
@@ -88,9 +91,10 @@ Override with argument or use -b flag.`,
 }
 
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show today's progress",
-	Long:  `Display your work hours progress for today.`,
+	Use:     "status",
+	Aliases: []string{"st", "today"},
+	Short:   "Show today's progress",
+	Long:    `Display your work hours progress for today.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		progress, err := trackerService.GetTodayProgress()
 		if err != nil {
@@ -118,9 +122,10 @@ var statusCmd = &cobra.Command{
 }
 
 var weekCmd = &cobra.Command{
-	Use:   "week [last|date]",
-	Short: "Show weekly summary",
-	Long:  `Display your work hours summary for the current week. Use "last" for previous week or a date (YYYY-MM-DD) for that week's summary.`,
+	Use:     "week [last|date]",
+	Aliases: []string{"w"},
+	Short:   "Show weekly summary",
+	Long:    `Display your work hours summary for the current week. Use "last" for previous week or a date (YYYY-MM-DD) for that week's summary.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var progress *tracker.WeekProgress
@@ -185,9 +190,10 @@ var weekCmd = &cobra.Command{
 }
 
 var monthCmd = &cobra.Command{
-	Use:   "month",
-	Short: "Show monthly summary",
-	Long:  `Display your work hours summary for the current month.`,
+	Use:     "month",
+	Aliases: []string{"m"},
+	Short:   "Show monthly summary",
+	Long:    `Display your work hours summary for the current month.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		progress, err := trackerService.GetMonthlyProgress()
 		if err != nil {
@@ -202,9 +208,10 @@ var monthCmd = &cobra.Command{
 }
 
 var editCmd = &cobra.Command{
-	Use:   "edit [id]",
-	Short: "Edit the current or last session",
-	Long:  `Edit the current session, or a specific session by ID. Use without ID to edit today's session.`,
+	Use:     "edit [id]",
+	Aliases: []string{"e", "update"},
+	Short:   "Edit the current or last session",
+	Long:    `Edit the current session, or a specific session by ID. Use without ID to edit today's session.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		breakMinutes, _ := cmd.Flags().GetInt("break")
@@ -219,7 +226,7 @@ var editCmd = &cobra.Command{
 				return err
 			}
 			if progress.CurrentSessionID == "" {
-				return fmt.Errorf("no active session. Use: samaya edit <id>")
+				return fmt.Errorf("no active session. Use: kairos edit <id>")
 			}
 			id = progress.CurrentSessionID
 		} else {
@@ -241,9 +248,10 @@ var editCmd = &cobra.Command{
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete <id>",
-	Short: "Delete a session",
-	Long:  `Delete a work session by its ID. Use 'sessions' to see IDs.`,
+	Use:     "delete <id>",
+	Aliases: []string{"del", "rm", "remove"},
+	Short:   "Delete a session",
+	Long:    `Delete a work session by its ID. Use 'sessions' to see IDs.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
@@ -265,9 +273,10 @@ var deleteCmd = &cobra.Command{
 }
 
 var sessionsCmd = &cobra.Command{
-	Use:   "sessions",
-	Short: "List recent sessions",
-	Long:  `Show your recent work sessions with IDs for editing.`,
+	Use:     "sessions",
+	Aliases: []string{"ls", "list"},
+	Short:   "List recent sessions",
+	Long:    `Show your recent work sessions with IDs for editing.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		progress, err := trackerService.GetWeeklyProgress()
 		if err != nil {
@@ -302,9 +311,10 @@ var sessionsCmd = &cobra.Command{
 }
 
 var askCmd = &cobra.Command{
-	Use:   "ask \"your question\"",
-	Short: "Ask AI about your work hours",
-	Long:  `Ask an AI-powered question about your work hours. Configure provider with: kairos config --provider ollama|openai|claude|gemini`,
+	Use:     "ask \"your question\"",
+	Aliases: []string{"a", "ai"},
+	Short:   "Ask AI about your work hours",
+	Long:    `Ask an AI-powered question about your work hours. Configure provider with: kairos config --provider ollama|openai|claude|gemini`,
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !aiService.IsAvailable() {
@@ -384,6 +394,94 @@ var configCmd = &cobra.Command{
 	},
 }
 
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish|powershell]",
+	Short: "Generate shell completion script",
+	Long: `Generate shell completion script for kairos.
+
+To load completions:
+
+Bash:
+  $ source <(kairos completion bash)
+
+  # To load completions for each session, execute once:
+  # Linux:
+  $ kairos completion bash > /etc/bash_completion.d/kairos
+  # macOS:
+  $ kairos completion bash > /usr/local/etc/bash_completion.d/kairos
+
+Zsh:
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it.  You can execute the following once:
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  # To load completions for each session, execute once:
+  $ kairos completion zsh > "${fpath[1]}/_kairos"
+
+  # You will need to start a new shell for this setup to take effect.
+
+Fish:
+  $ kairos completion fish > ~/.config/fish/completions/kairos.fish
+
+PowerShell:
+  PS> kairos completion powershell > kairos.ps1
+  # To load completions for every new session, run:
+  PS> . kairos.ps1
+`,
+	DisableFlagsInUseLine: true,
+	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+	Args:                  cobra.ExactValidArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return cmd.Root().GenBashCompletion(os.Stdout)
+		case "zsh":
+			return cmd.Root().GenZshCompletion(os.Stdout)
+		case "fish":
+			return cmd.Root().GenFishCompletion(os.Stdout, true)
+		case "powershell":
+			return cmd.Root().GenPowerShellCompletion(os.Stdout)
+		}
+		return nil
+	},
+}
+
+var batchCmd = &cobra.Command{
+	Use:     "batch <command>",
+	Aliases: []string{"bulk", "batchedit"},
+	Short:   "Batch edit sessions",
+	Long: `Batch edit sessions matching criteria.
+
+Examples:
+  kairos batch edit --ids a1b2c3d4,e5f6g7h8 --note "Team meeting"
+  kairos batch delete --date 2024-01-15 --force
+
+Use --dry-run to preview changes without applying them.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Batch operations for editing multiple sessions
+		idsStr, _ := cmd.Flags().GetString("ids")
+		dateStr, _ := cmd.Flags().GetString("date")
+		note, _ := cmd.Flags().GetString("note")
+		breakMinutes, _ := cmd.Flags().GetInt("break")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+		fmt.Printf("Batch command: %s\n", args[0])
+		fmt.Printf("  IDs: %s\n", idsStr)
+		fmt.Printf("  Date: %s\n", dateStr)
+		fmt.Printf("  Note: %s\n", note)
+		fmt.Printf("  Break: %d min\n", breakMinutes)
+		fmt.Printf("  Dry run: %t\n", dryRun)
+
+		if args[0] == "edit" && idsStr != "" {
+			fmt.Println("Batch edit mode - feature coming soon")
+		} else if args[0] == "delete" {
+			fmt.Println("Batch delete mode - feature coming soon")
+		}
+		return nil
+	},
+}
+
 func init() {
 	editCmd.Flags().IntP("break", "b", 0, "Break time in minutes")
 	editCmd.Flags().StringP("note", "n", "", "Add a note")
@@ -396,4 +494,11 @@ func init() {
 
 	clockoutCmd.Flags().StringP("time", "t", "", "Override end time (HH:MM)")
 	clockoutCmd.Flags().IntP("break", "b", -1, "Override break time in minutes")
+
+	// Batch command flags
+	batchCmd.Flags().String("ids", "", "Comma-separated session IDs")
+	batchCmd.Flags().String("date", "", "Filter by date (YYYY-MM-DD)")
+	batchCmd.Flags().StringP("note", "n", "", "Note to set")
+	batchCmd.Flags().IntP("break", "b", 0, "Break time in minutes")
+	batchCmd.Flags().Bool("dry-run", false, "Preview changes without applying")
 }

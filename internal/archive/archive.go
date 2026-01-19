@@ -16,23 +16,28 @@ import (
 type Archiver struct {
 	db          *storage.Database
 	historyPath string
+	weeklyGoal  float64
 }
 
 // New creates a new Archiver
-func New(db *storage.Database, historyPath string) *Archiver {
+func New(db *storage.Database, historyPath string, weeklyGoal float64) *Archiver {
+	if weeklyGoal <= 0 {
+		weeklyGoal = work.WeeklyGoalHours
+	}
 	return &Archiver{
 		db:          db,
 		historyPath: historyPath,
+		weeklyGoal:  weeklyGoal,
 	}
 }
 
 // MonthSummary contains archived month data
 type MonthSummary struct {
-	Month        time.Time
-	TotalHours   float64
-	DaysWorked   int
-	WeeklyGoal   float64
-	Sessions     []SessionRecord
+	Month         time.Time
+	TotalHours    float64
+	DaysWorked    int
+	WeeklyGoal    float64
+	Sessions      []SessionRecord
 	WeekBreakdown map[int]float64
 }
 
@@ -49,7 +54,8 @@ type SessionRecord struct {
 // ArchiveMonth exports a month's data to markdown and optionally cleans DB
 func (a *Archiver) ArchiveMonth(year int, month time.Month, cleanDB bool) error {
 	// Get month boundaries
-	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	loc := a.db.Location()
+	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, loc)
 	monthEnd := monthStart.AddDate(0, 1, 0).Add(-time.Second)
 
 	// Get sessions for the month
@@ -94,7 +100,7 @@ func (a *Archiver) ArchiveMonth(year int, month time.Month, cleanDB bool) error 
 func (a *Archiver) buildSummary(monthStart time.Time, sessions []storage.WorkSession) *MonthSummary {
 	summary := &MonthSummary{
 		Month:         monthStart,
-		WeeklyGoal:    work.WeeklyGoalHours,
+		WeeklyGoal:    a.weeklyGoal,
 		Sessions:      make([]SessionRecord, 0, len(sessions)),
 		WeekBreakdown: make(map[int]float64),
 	}
@@ -177,13 +183,13 @@ func (a *Archiver) generateMarkdown(summary *MonthSummary) string {
 	sb.WriteString("\n")
 
 	// Footer
-	sb.WriteString(fmt.Sprintf("---\n*Archived: %s*\n", time.Now().Format("2006-01-02 15:04")))
+	sb.WriteString(fmt.Sprintf("---\n*Archived: %s*\n", time.Now().In(a.db.Location()).Format("2006-01-02 15:04")))
 
 	return sb.String()
 }
 
 func (a *Archiver) cleanMonth(year int, month time.Month) error {
-	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
+	monthStart := time.Date(year, month, 1, 0, 0, 0, 0, a.db.Location())
 	monthEnd := monthStart.AddDate(0, 1, 0).Add(-time.Second)
 
 	return a.db.DeleteSessionsInRange(monthStart, monthEnd)
@@ -191,8 +197,9 @@ func (a *Archiver) cleanMonth(year int, month time.Month) error {
 
 // AutoArchivePastMonths archives all complete months older than current
 func (a *Archiver) AutoArchivePastMonths() ([]string, error) {
-	now := time.Now()
-	currentMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	loc := a.db.Location()
+	now := time.Now().In(loc)
+	currentMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
 
 	// Get oldest session date
 	oldestDate, err := a.db.GetOldestSessionDate()
@@ -204,7 +211,7 @@ func (a *Archiver) AutoArchivePastMonths() ([]string, error) {
 	}
 
 	var archived []string
-	monthStart := time.Date(oldestDate.Year(), oldestDate.Month(), 1, 0, 0, 0, 0, time.Local)
+	monthStart := time.Date(oldestDate.Year(), oldestDate.Month(), 1, 0, 0, 0, 0, loc)
 
 	// Archive each month before current
 	for monthStart.Before(currentMonth) {
@@ -217,7 +224,7 @@ func (a *Archiver) AutoArchivePastMonths() ([]string, error) {
 			continue
 		}
 
-		err := a.ArchiveMonth(monthStart.Year(), monthStart.Month(), true)
+		err := a.ArchiveMonth(monthStart.Year(), monthStart.Month(), false)
 		if err != nil {
 			// Skip months with no data
 			if strings.Contains(err.Error(), "no sessions found") {

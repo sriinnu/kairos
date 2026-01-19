@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -24,12 +25,41 @@ var clockinCmd = &cobra.Command{
 	Short:   "Start a work session",
 	Long:    `Clock in to start tracking your work hours. Optionally add a note or override time with -t.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		progress, err := trackerService.GetTodayProgress()
+		active, err := trackerService.GetActiveSession()
 		if err != nil {
 			return err
 		}
-		if progress.CurrentSessionID != "" {
-			return fmt.Errorf("already clocked in! Use 'kairos clockout' first")
+		if active != nil {
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Printf("Active session started at %s on %s.\n",
+				active.StartTime.Format("15:04"), active.StartTime.Format("2006-01-02"))
+			for {
+				fmt.Print("Forgot to clock out? Enter clockout time (HH:MM), or press Enter to cancel: ")
+				line, err := reader.ReadString('\n')
+				if err != nil && err != io.EOF {
+					return err
+				}
+				timeStr := strings.TrimSpace(line)
+				if timeStr == "" {
+					return fmt.Errorf("clockin cancelled; active session is still open")
+				}
+				if !isValidTimeInput(timeStr) {
+					if err == io.EOF {
+						return fmt.Errorf("invalid time format: %s", timeStr)
+					}
+					fmt.Println("Invalid time format. Use HH:MM (for example, 18:30).")
+					continue
+				}
+
+				breakMinutes := work.GetBreakMinutesForDay(active.StartTime)
+				updated, err := trackerService.ClockOutWithTime(active.ID, breakMinutes, "", timeStr)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Closed previous session at %s | Break: %dmin\n",
+					updated.EndTime.Format("15:04"), breakMinutes)
+				break
+			}
 		}
 
 		// Join all args as note (don't skip colons - notes can contain them)
@@ -66,8 +96,8 @@ Override with argument or use -b flag.`,
 			return fmt.Errorf("no active session found")
 		}
 
-		// Default break based on day of week
-		breakMinutes := work.GetBreakMinutesForToday()
+		// Default break based on the session's start day
+		breakMinutes := work.GetBreakMinutesForDay(session.StartTime)
 
 		// Override from flag first
 		if cmd.Flags().Changed("break") {
@@ -131,7 +161,7 @@ var weekCmd = &cobra.Command{
 	Aliases: []string{"w"},
 	Short:   "Show weekly summary",
 	Long:    `Display your work hours summary for the current week. Use "last" for previous week or a date (YYYY-MM-DD) for that week's summary.`,
-	Args:  cobra.MaximumNArgs(1),
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var progress *tracker.WeekProgress
 		var err error
@@ -141,12 +171,13 @@ var weekCmd = &cobra.Command{
 		} else if args[0] == "last" {
 			progress, err = trackerService.GetLastWeekProgress()
 		} else {
+			loc := cfg.GetLocation()
 			// Try parsing as date
-			t, parseErr := time.Parse("2006-01-02", args[0])
+			t, parseErr := time.ParseInLocation("2006-01-02", args[0], loc)
 			if parseErr != nil {
 				// Try YYYY-MM-DD format variations
 				for _, fmt := range []string{"2006-01-02", "Jan 2", "Jan 02", "1/2"} {
-					if t, parseErr = time.Parse(fmt, args[0]); parseErr == nil {
+					if t, parseErr = time.ParseInLocation(fmt, args[0], loc); parseErr == nil {
 						break
 					}
 				}
@@ -170,7 +201,7 @@ var weekCmd = &cobra.Command{
 		}
 		fmt.Printf("Week: %s - %s | Total: %.2f/%gh | %s\n",
 			progress.WeekStart.Format("Jan 2"), progress.WeekEnd.Format("Jan 2"),
-			progress.TotalHours, work.WeeklyGoalHours, summary)
+			progress.TotalHours, trackerService.WeeklyGoal(), summary)
 
 		// One row per day
 		dayNames := []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
@@ -183,7 +214,7 @@ var weekCmd = &cobra.Command{
 			if i == 6 { // Sunday
 				dayName = "Sun"
 			}
-			if dayDate.Format("2006-01-02") == time.Now().Format("2006-01-02") {
+			if dayDate.Format("2006-01-02") == cfg.Now().Format("2006-01-02") {
 				fmt.Printf("  %s %s: %.2fh *\n", dayDate.Format("01/02"), dayName, hours)
 			} else {
 				fmt.Printf("  %s %s: %.2fh\n", dayDate.Format("01/02"), dayName, hours)
@@ -217,7 +248,7 @@ var editCmd = &cobra.Command{
 	Aliases: []string{"e", "update"},
 	Short:   "Edit the current or last session",
 	Long:    `Edit the current session, or a specific session by ID. Use without ID to edit today's session.`,
-	Args:  cobra.MaximumNArgs(1),
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		breakMinutes, _ := cmd.Flags().GetInt("break")
 		note, _ := cmd.Flags().GetString("note")
@@ -257,7 +288,7 @@ var deleteCmd = &cobra.Command{
 	Aliases: []string{"del", "rm", "remove"},
 	Short:   "Delete a session",
 	Long:    `Delete a work session by its ID. Use 'sessions' to see IDs.`,
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 
@@ -320,7 +351,7 @@ var askCmd = &cobra.Command{
 	Aliases: []string{"a", "ai"},
 	Short:   "Ask AI about your work hours",
 	Long:    `Ask an AI-powered question about your work hours. Configure provider with: kairos config --provider ollama|openai|claude|gemini`,
-	Args:  cobra.MinimumNArgs(1),
+	Args:    cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !aiService.IsAvailable() {
 			return fmt.Errorf("%s is not available. Configure with: kairos config", aiService.Name())
@@ -393,8 +424,9 @@ var configCmd = &cobra.Command{
 	Long:  `Display the current configuration settings and work rules.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Config: DB=%s | Ollama=%s (%s)\n", cfg.DatabasePath, cfg.OllamaURL, cfg.OllamaModel)
+		dailyTarget := cfg.WeeklyGoal / float64(work.WorkDaysPerWeek)
 		fmt.Printf("Rules: Weekly: %.2fh | Daily: %.2fh | Break: %dmin (Fri: %dmin)\n",
-			work.WeeklyGoalHours, work.DailyTargetHours, work.DefaultBreakMinutes, work.FridayBreakMinutes)
+			cfg.WeeklyGoal, dailyTarget, work.DefaultBreakMinutes, work.FridayBreakMinutes)
 		return nil
 	},
 }
@@ -509,16 +541,18 @@ Examples:
 		}
 
 		// Parse dates
-		startDate := time.Now().AddDate(0, 0, -30)
-		endDate := time.Now()
+		now := cfg.Now()
+		loc := cfg.GetLocation()
+		startDate := now.AddDate(0, 0, -30)
+		endDate := now
 		if startStr != "" {
-			t, err := time.Parse("2006-01-02", startStr)
+			t, err := time.ParseInLocation("2006-01-02", startStr, loc)
 			if err == nil {
 				startDate = t
 			}
 		}
 		if endStr != "" {
-			t, err := time.Parse("2006-01-02", endStr)
+			t, err := time.ParseInLocation("2006-01-02", endStr, loc)
 			if err == nil {
 				endDate = t
 			}
@@ -569,27 +603,29 @@ Examples:
 		startStr, _ := cmd.Flags().GetString("start")
 		endStr, _ := cmd.Flags().GetString("end")
 
-		startDate := time.Now().AddDate(0, 0, -7)
-		endDate := time.Now()
+		now := cfg.Now()
+		loc := cfg.GetLocation()
+		startDate := now.AddDate(0, 0, -7)
+		endDate := now
 
 		if len(args) > 0 {
 			if args[0] == "last-week" {
-				startDate = time.Now().AddDate(0, 0, -7)
+				startDate = now.AddDate(0, 0, -7)
 			} else if args[0] == "last-month" {
-				startDate = time.Now().AddDate(0, -1, 0)
-			} else if t, err := time.Parse("2006-01-02", args[0]); err == nil {
+				startDate = now.AddDate(0, -1, 0)
+			} else if t, err := time.ParseInLocation("2006-01-02", args[0], loc); err == nil {
 				startDate = t
 				endDate = t
 			}
 		}
 
 		if startStr != "" {
-			if t, err := time.Parse("2006-01-02", startStr); err == nil {
+			if t, err := time.ParseInLocation("2006-01-02", startStr, loc); err == nil {
 				startDate = t
 			}
 		}
 		if endStr != "" {
-			if t, err := time.Parse("2006-01-02", endStr); err == nil {
+			if t, err := time.ParseInLocation("2006-01-02", endStr, loc); err == nil {
 				endDate = t
 			}
 		}
@@ -697,12 +733,12 @@ func exportCSV(w io.Writer, sessions []storage.WorkSession) error {
 
 func exportJSON(w io.Writer, sessions []storage.WorkSession) error {
 	type sessionExport struct {
-		Date          string  `json:"date"`
-		StartTime     string  `json:"start_time"`
-		EndTime       string  `json:"end_time,omitempty"`
-		BreakMinutes  int     `json:"break_minutes"`
-		HoursWorked   float64 `json:"hours_worked"`
-		Note          string  `json:"note,omitempty"`
+		Date         string  `json:"date"`
+		StartTime    string  `json:"start_time"`
+		EndTime      string  `json:"end_time,omitempty"`
+		BreakMinutes int     `json:"break_minutes"`
+		HoursWorked  float64 `json:"hours_worked"`
+		Note         string  `json:"note,omitempty"`
 	}
 
 	exports := make([]sessionExport, 0, len(sessions))
@@ -727,9 +763,9 @@ func exportJSON(w io.Writer, sessions []storage.WorkSession) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(map[string]interface{}{
-		"export_date": time.Now().Format("2006-01-02"),
+		"export_date":    cfg.Now().Format("2006-01-02"),
 		"total_sessions": len(sessions),
-		"sessions": exports,
+		"sessions":       exports,
 	})
 }
 
@@ -781,6 +817,15 @@ func exportHTML(w io.Writer, sessions []storage.WorkSession, start, end time.Tim
 
 	_, err := w.Write([]byte(html))
 	return err
+}
+
+func isValidTimeInput(input string) bool {
+	for _, format := range []string{"15:04", "3:04", "15:04:05", "3:04:05"} {
+		if _, err := time.Parse(format, input); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

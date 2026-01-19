@@ -303,7 +303,7 @@ ollama pull llama3.2
 ### Configure AI Provider
 
 ```bash
-# Set provider in config (edit ~/.kairos.yaml)
+# Set provider in config (edit ./.kairos/config.yaml)
 ai_provider: ollama  # or openai, claude, gemini
 
 # For cloud providers, set environment variables
@@ -477,16 +477,20 @@ kairos mcp query persist action=store key="reminder" value="Team meeting at 3pm"
 
 ## Configuration
 
-Kairos uses `~/.kairos.yaml` for configuration (created automatically on first run).
+Kairos uses `./.kairos/config.yaml` for configuration (created automatically on first run).
 
 ### Default Configuration
 
 ```yaml
 # Database location
-database_path: ~/.kairos/data.db
+database_path: ./.kairos/data.db
 
 # Weekly goal in hours (38.5 is standard in Austria)
 weekly_goal: 38.5
+
+# Timezone (IANA name or UTC offset)
+timezone: Europe/Vienna
+# timezone: UTC+01:00
 
 # Ollama settings
 ollama_url: http://localhost:11434
@@ -515,8 +519,7 @@ All data is stored locally in SQLite. Your privacy is protected—no cloud sync,
 
 ### Database Location
 
-- **Linux/macOS:** `~/.kairos/data.db`
-- **Windows:** `%USERPROFILE%\.kairos\data.db`
+- **All platforms:** `./.kairos/data.db` (relative to the repo root)
 
 ### Database Schema
 
@@ -532,7 +535,7 @@ memories         - Long-term memories (MCP persist)
 
 ```bash
 # Copy the database file
-cp ~/.kairos/data.db backup.db
+cp ./.kairos/data.db backup.db
 
 # Export to CSV (future feature)
 kairos export csv -o work-hours.csv

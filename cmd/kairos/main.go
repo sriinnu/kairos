@@ -31,25 +31,27 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		db, err = storage.New(cfg.DatabasePath)
+		db, err = storage.New(cfg.DatabasePath, cfg.GetLocation())
 		if err != nil {
 			return err
 		}
-		trackerService = tracker.NewWithDefaults(db)
+		trackerService = tracker.NewWithLocation(db, cfg.WeeklyGoal, cfg.GetLocation())
 		aiService = ai.NewAIService(cfg)
 		aiService.Initialize()
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		dataQuerier = ai.NewDataQuerierWithHistory(db, historyPath)
+		dataQuerier = ai.NewDataQuerierWithHistory(db, trackerService, historyPath)
 
-		// Auto-archive past months (silent, non-blocking)
-		go func() {
-			historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-			archiver := archive.New(db, historyPath)
-			archived, _ := archiver.AutoArchivePastMonths()
-			if len(archived) > 0 {
-				fmt.Printf("Auto-archived %d month(s) to %s\n", len(archived), historyPath)
-			}
-		}()
+		if cfg.AutoArchive {
+			// Auto-archive past months (silent, non-blocking)
+			go func() {
+				historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
+				archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
+				archived, _ := archiver.AutoArchivePastMonths()
+				if len(archived) > 0 {
+					fmt.Printf("Auto-archived %d month(s) to %s\n", len(archived), historyPath)
+				}
+			}()
+		}
 
 		return nil
 	},

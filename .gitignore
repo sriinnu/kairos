@@ -1,14 +1,16 @@
 # Binaries
 /kairos
+./kairos
 /samaya
 *.exe
 
 # Data
 *.db
 *.sqlite3
-data/
+/data/
+/history/
 .samaya/
-.kairos/
+/.kairos/
 
 # IDE
 .idea/

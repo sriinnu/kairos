@@ -20,19 +20,25 @@ type DataQuerier struct {
 }
 
 // NewDataQuerier creates a new data querier
-func NewDataQuerier(db *storage.Database) *DataQuerier {
+func NewDataQuerier(db *storage.Database, tr *tracker.Tracker) *DataQuerier {
+	if tr == nil {
+		tr = tracker.NewWithLocation(db, work.WeeklyGoalHours, db.Location())
+	}
 	return &DataQuerier{
 		db:          db,
-		tracker:     tracker.NewWithDefaults(db),
+		tracker:     tr,
 		historyPath: "", // Set via SetHistoryPath if needed
 	}
 }
 
 // NewDataQuerierWithHistory creates a data querier with history support
-func NewDataQuerierWithHistory(db *storage.Database, historyPath string) *DataQuerier {
+func NewDataQuerierWithHistory(db *storage.Database, tr *tracker.Tracker, historyPath string) *DataQuerier {
+	if tr == nil {
+		tr = tracker.NewWithLocation(db, work.WeeklyGoalHours, db.Location())
+	}
 	return &DataQuerier{
 		db:          db,
-		tracker:     tracker.NewWithDefaults(db),
+		tracker:     tr,
 		historyPath: historyPath,
 	}
 }
@@ -42,12 +48,23 @@ func (dq *DataQuerier) SetHistoryPath(path string) {
 	dq.historyPath = path
 }
 
+func (dq *DataQuerier) now() time.Time {
+	return time.Now().In(dq.db.Location())
+}
+
+func (dq *DataQuerier) weeklyGoal() float64 {
+	if dq.tracker != nil {
+		return dq.tracker.WeeklyGoal()
+	}
+	return work.WeeklyGoalHours
+}
+
 // QueryResult contains structured data for AI consumption
 type QueryResult struct {
-	QueryType   string                 `json:"query_type"`
-	Data        map[string]interface{} `json:"data"`
-	Summary     string                 `json:"summary"`
-	Timestamp   time.Time              `json:"timestamp"`
+	QueryType string                 `json:"query_type"`
+	Data      map[string]interface{} `json:"data"`
+	Summary   string                 `json:"summary"`
+	Timestamp time.Time              `json:"timestamp"`
 }
 
 // GetTodaySummary returns today's work data
@@ -82,7 +99,7 @@ func (dq *DataQuerier) GetTodaySummary() (*QueryResult, error) {
 		QueryType: "today_summary",
 		Data:      data,
 		Summary:   summary,
-		Timestamp: time.Now(),
+		Timestamp: dq.now(),
 	}, nil
 }
 
@@ -93,35 +110,40 @@ func (dq *DataQuerier) GetWeekSummary() (*QueryResult, error) {
 		return nil, err
 	}
 
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(dq.now())
 	dailyTarget := 0.0
 	if remainingDays > 0 && progress.RemainingHours > 0 {
 		dailyTarget = progress.RemainingHours / float64(remainingDays)
 	}
 
+	goal := dq.weeklyGoal()
+	progressPct := 0.0
+	if goal > 0 {
+		progressPct = (progress.TotalHours / goal) * 100
+	}
 	data := map[string]interface{}{
 		"week_start":      progress.WeekStart.Format("2006-01-02"),
 		"week_end":        progress.WeekEnd.Format("2006-01-02"),
 		"total_hours":     progress.TotalHours,
-		"weekly_goal":     work.WeeklyGoalHours,
+		"weekly_goal":     goal,
 		"remaining_hours": progress.RemainingHours,
 		"days_worked":     progress.DaysWorkedCount,
 		"remaining_days":  remainingDays,
 		"daily_target":    dailyTarget,
-		"progress_pct":    (progress.TotalHours / work.WeeklyGoalHours) * 100,
+		"progress_pct":    progressPct,
 		"daily_breakdown": progress.DaysWorked,
 	}
 
 	summary := fmt.Sprintf("Week: %.2f/%.2f hours (%.1f%%), %d days worked, %.2f hours remaining",
-		progress.TotalHours, work.WeeklyGoalHours,
-		(progress.TotalHours/work.WeeklyGoalHours)*100,
+		progress.TotalHours, goal,
+		progressPct,
 		progress.DaysWorkedCount, progress.RemainingHours)
 
 	return &QueryResult{
 		QueryType: "week_summary",
 		Data:      data,
 		Summary:   summary,
-		Timestamp: time.Now(),
+		Timestamp: dq.now(),
 	}, nil
 }
 
@@ -147,7 +169,7 @@ func (dq *DataQuerier) GetMonthSummary() (*QueryResult, error) {
 		QueryType: "month_summary",
 		Data:      data,
 		Summary:   summary,
-		Timestamp: time.Now(),
+		Timestamp: dq.now(),
 	}, nil
 }
 
@@ -199,7 +221,7 @@ func (dq *DataQuerier) GetRecentSessions(limit int) (*QueryResult, error) {
 		QueryType: "recent_sessions",
 		Data:      data,
 		Summary:   summary,
-		Timestamp: time.Now(),
+		Timestamp: dq.now(),
 	}, nil
 }
 
@@ -220,16 +242,17 @@ func (dq *DataQuerier) GetWorkStatus() (*QueryResult, error) {
 		return nil, err
 	}
 
+	goal := dq.weeklyGoal()
 	data := map[string]interface{}{
-		"is_working":       active != nil,
-		"today_hours":      dayProgress.TotalHours,
-		"week_hours":       weekProgress.TotalHours,
-		"weekly_goal":      work.WeeklyGoalHours,
-		"remaining_hours":  weekProgress.RemainingHours,
-		"remaining_days":   work.RemainingWorkDaysInWeek(time.Now()),
-		"time_now":         time.Now().Format("15:04"),
-		"day_of_week":      time.Now().Weekday().String(),
-		"default_break":    work.GetBreakMinutesForToday(),
+		"is_working":      active != nil,
+		"today_hours":     dayProgress.TotalHours,
+		"week_hours":      weekProgress.TotalHours,
+		"weekly_goal":     goal,
+		"remaining_hours": weekProgress.RemainingHours,
+		"remaining_days":  work.RemainingWorkDaysInWeek(dq.now()),
+		"time_now":        dq.now().Format("15:04"),
+		"day_of_week":     dq.now().Weekday().String(),
+		"default_break":   work.GetBreakMinutesForDay(dq.now()),
 	}
 
 	if active != nil {
@@ -243,17 +266,17 @@ func (dq *DataQuerier) GetWorkStatus() (*QueryResult, error) {
 			active.StartTime.Format("15:04"),
 			time.Since(active.StartTime).Hours(),
 			dayProgress.TotalHours,
-			weekProgress.TotalHours, work.WeeklyGoalHours)
+			weekProgress.TotalHours, goal)
 	} else {
 		summary = fmt.Sprintf("Not currently working. Today: %.2f hrs, Week: %.2f/%.2f hrs",
-			dayProgress.TotalHours, weekProgress.TotalHours, work.WeeklyGoalHours)
+			dayProgress.TotalHours, weekProgress.TotalHours, goal)
 	}
 
 	return &QueryResult{
 		QueryType: "work_status",
 		Data:      data,
 		Summary:   summary,
-		Timestamp: time.Now(),
+		Timestamp: dq.now(),
 	}, nil
 }
 

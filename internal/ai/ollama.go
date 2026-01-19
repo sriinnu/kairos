@@ -17,6 +17,7 @@ type Ollama struct {
 	baseURL string
 	model   string
 	client  *http.Client
+	loc     *time.Location
 }
 
 func New(baseURL, model string) *Ollama {
@@ -26,7 +27,21 @@ func New(baseURL, model string) *Ollama {
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		loc: time.Local,
 	}
+}
+
+func (o *Ollama) SetLocation(loc *time.Location) {
+	if loc != nil {
+		o.loc = loc
+	}
+}
+
+func (o *Ollama) now() time.Time {
+	if o.loc != nil {
+		return time.Now().In(o.loc)
+	}
+	return time.Now()
 }
 
 func (o *Ollama) IsAvailable() bool {
@@ -61,12 +76,13 @@ func (o *Ollama) AskWithContext(question string, ctx *WorkContext) (string, erro
 
 // Predict generates predictions based on weekly progress
 func (o *Ollama) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(o.now())
 	dailyTarget := 0.0
 	if remainingDays > 0 && weekProgress.RemainingHours > 0 {
 		dailyTarget = weekProgress.RemainingHours / float64(remainingDays)
 	}
 
+	weeklyGoal := weeklyGoalFromProgress(weekProgress)
 	prompt := fmt.Sprintf(`Based on the following work week data:
 - Total hours worked so far: %.2f
 - Weekly goal: %.2f hours
@@ -82,7 +98,7 @@ Predict:
 
 Respond in a friendly, concise manner.`,
 		weekProgress.TotalHours,
-		work.WeeklyGoalHours,
+		weeklyGoal,
 		weekProgress.DaysWorkedCount,
 		weekProgress.RemainingHours,
 		remainingDays,
@@ -144,9 +160,11 @@ func (o *Ollama) buildPrompt(question string, dayProgress *tracker.DayProgress, 
 
 	weekHours := 0.0
 	daysWorked := 0
+	weeklyGoal := work.WeeklyGoalHours
 	if weekProgress != nil {
 		weekHours = weekProgress.TotalHours
 		daysWorked = weekProgress.DaysWorkedCount
+		weeklyGoal = weeklyGoalFromProgress(weekProgress)
 	}
 
 	return fmt.Sprintf(`You are a helpful work hours assistant. Current user data:
@@ -161,7 +179,7 @@ User question: "%s"
 Provide a helpful, concise answer based on the data above.`,
 		todayHours,
 		weekHours,
-		work.WeeklyGoalHours,
+		weeklyGoal,
 		daysWorked,
 		work.DefaultBreakMinutes,
 		question)

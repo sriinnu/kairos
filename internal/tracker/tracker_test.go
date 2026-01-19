@@ -39,7 +39,7 @@ func TestGetWeekStart(t *testing.T) {
 	}
 }
 
-func TestParseTime(t *testing.T) {
+func TestParseTimeOnDate(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
@@ -59,17 +59,17 @@ func TestParseTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result, err := parseTime(tt.input)
+			result, err := parseTimeOnDate(now, tt.input)
 			if tt.hasError {
 				if err == nil {
-					t.Errorf("parseTime(%q) expected error, got nil", tt.input)
+					t.Errorf("parseTimeOnDate(%q) expected error, got nil", tt.input)
 				}
 			} else {
 				if err != nil {
-					t.Errorf("parseTime(%q) unexpected error: %v", tt.input, err)
+					t.Errorf("parseTimeOnDate(%q) unexpected error: %v", tt.input, err)
 				}
 				if result.Hour() != tt.expected.Hour() || result.Minute() != tt.expected.Minute() {
-					t.Errorf("parseTime(%q) = %v, want %v", tt.input, result, tt.expected)
+					t.Errorf("parseTimeOnDate(%q) = %v, want %v", tt.input, result, tt.expected)
 				}
 			}
 		})
@@ -109,10 +109,10 @@ func TestNewTrackerNegativeGoal(t *testing.T) {
 
 func TestDayProgressCalculation(t *testing.T) {
 	progress := &DayProgress{
-		Date:            time.Now(),
-		TotalHours:      0,
+		Date:             time.Now(),
+		TotalHours:       0,
 		CurrentSessionID: "",
-		Sessions:        nil,
+		Sessions:         nil,
 	}
 
 	if progress.TotalHours != 0 {

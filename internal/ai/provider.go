@@ -30,6 +30,13 @@ type AIService struct {
 	cfg      *config.Config
 }
 
+func (s *AIService) now() time.Time {
+	if s.cfg != nil {
+		return s.cfg.Now()
+	}
+	return time.Now()
+}
+
 // NewAIService creates an AI service with the configured provider
 func NewAIService(cfg *config.Config) *AIService {
 	return &AIService{
@@ -41,13 +48,13 @@ func NewAIService(cfg *config.Config) *AIService {
 func (s *AIService) Initialize() error {
 	switch s.cfg.AIProvider {
 	case config.ProviderOllama:
-		s.provider = NewOllamaProvider(s.cfg.OllamaURL, s.cfg.OllamaModel)
+		s.provider = NewOllamaProvider(s.cfg.OllamaURL, s.cfg.OllamaModel, s.cfg.GetLocation())
 	case config.ProviderOpenAI:
-		s.provider = NewOpenAIProvider(s.cfg.OpenAIModel, s.cfg.OpenAIAPIKey)
+		s.provider = NewOpenAIProvider(s.cfg.OpenAIModel, s.cfg.OpenAIAPIKey, s.cfg.GetLocation())
 	case config.ProviderClaude:
-		s.provider = NewClaudeProvider(s.cfg.ClaudeModel, s.cfg.ClaudeAPIKey)
+		s.provider = NewClaudeProvider(s.cfg.ClaudeModel, s.cfg.ClaudeAPIKey, s.cfg.GetLocation())
 	case config.ProviderGemini:
-		s.provider = NewGeminiProvider(s.cfg.GeminiModel, s.cfg.GeminiAPIKey)
+		s.provider = NewGeminiProvider(s.cfg.GeminiModel, s.cfg.GeminiAPIKey, s.cfg.GetLocation())
 	default:
 		return fmt.Errorf("unknown AI provider: %s", s.cfg.AIProvider)
 	}
@@ -135,8 +142,8 @@ func (s *AIService) offlineAsk(question string, ctx *WorkContext) string {
 
 // offlinePredict provides rule-based predictions
 func (s *AIService) offlinePredict(weekProgress *tracker.WeekProgress) string {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
-	goal := work.WeeklyGoalHours
+	remainingDays := work.RemainingWorkDaysInWeek(s.now())
+	goal := weeklyGoalFromProgress(weekProgress)
 
 	if weekProgress.RemainingHours <= 0 {
 		return "You've already reached your weekly goal! Well done!"
@@ -155,14 +162,14 @@ func (s *AIService) offlinePredict(weekProgress *tracker.WeekProgress) string {
 func (s *AIService) offlineAnalyze(dq *DataQuerier) string {
 	// Get basic stats
 	week, _ := dq.GetWeekHours()
-	goal := work.WeeklyGoalHours
+	goal := dq.weeklyGoal()
 
 	if week >= goal {
 		return "You've already hit your weekly goal! Great consistency this week."
 	}
 
 	remaining := goal - week
-	daysLeft := work.RemainingWorkDaysInWeek(time.Now())
+	daysLeft := work.RemainingWorkDaysInWeek(s.now())
 
 	if daysLeft > 0 {
 		daily := remaining / float64(daysLeft)
@@ -210,10 +217,10 @@ func BuildWorkContext(t *tracker.Tracker) (*WorkContext, error) {
 		TodayHours:     dayProgress.TotalHours,
 		WeekHours:      weekProgress.TotalHours,
 		MonthHours:     monthProgress.TotalHours,
-		WeeklyGoal:     work.WeeklyGoalHours,
+		WeeklyGoal:     t.WeeklyGoal(),
 		RemainingHours: weekProgress.RemainingHours,
 		DaysWorked:     weekProgress.DaysWorkedCount,
-		RemainingDays:  work.RemainingWorkDaysInWeek(time.Now()),
+		RemainingDays:  work.RemainingWorkDaysInWeek(t.Now()),
 		DailyBreakdown: weekProgress.DaysWorked,
 		IsWorking:      activeSession != nil,
 	}
@@ -235,16 +242,25 @@ type OllamaProvider struct {
 	baseURL string
 	model   string
 	client  *http.Client
+	loc     *time.Location
 }
 
-func NewOllamaProvider(baseURL, model string) *OllamaProvider {
+func NewOllamaProvider(baseURL, model string, loc *time.Location) *OllamaProvider {
 	return &OllamaProvider{
 		baseURL: baseURL,
 		model:   model,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		loc: loc,
 	}
+}
+
+func (o *OllamaProvider) now() time.Time {
+	if o.loc != nil {
+		return time.Now().In(o.loc)
+	}
+	return time.Now()
 }
 
 func (o *OllamaProvider) Name() string {
@@ -275,12 +291,13 @@ func (o *OllamaProvider) Ask(question string, ctx *WorkContext) (string, error) 
 }
 
 func (o *OllamaProvider) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(o.now())
 	dailyTarget := 0.0
 	if remainingDays > 0 && weekProgress.RemainingHours > 0 {
 		dailyTarget = weekProgress.RemainingHours / float64(remainingDays)
 	}
 
+	weeklyGoal := weeklyGoalFromProgress(weekProgress)
 	prompt := fmt.Sprintf(`Based on the following work week data:
 - Total hours worked so far: %.2f
 - Weekly goal: %.2f hours
@@ -296,7 +313,7 @@ Predict:
 
 Respond in a friendly, concise manner.`,
 		weekProgress.TotalHours,
-		work.WeeklyGoalHours,
+		weeklyGoal,
 		weekProgress.DaysWorkedCount,
 		weekProgress.RemainingHours,
 		remainingDays,
@@ -329,9 +346,9 @@ func (o *OllamaProvider) query(prompt string) (string, error) {
 	defer cancel()
 
 	reqBody := map[string]interface{}{
-		"model":   o.model,
-		"prompt":  prompt,
-		"stream":  false,
+		"model":  o.model,
+		"prompt": prompt,
+		"stream": false,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -414,16 +431,25 @@ type OpenAIProvider struct {
 	model  string
 	apiKey string
 	client *http.Client
+	loc    *time.Location
 }
 
-func NewOpenAIProvider(model, apiKey string) *OpenAIProvider {
+func NewOpenAIProvider(model, apiKey string, loc *time.Location) *OpenAIProvider {
 	return &OpenAIProvider{
 		model:  model,
 		apiKey: apiKey,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		loc: loc,
 	}
+}
+
+func (o *OpenAIProvider) now() time.Time {
+	if o.loc != nil {
+		return time.Now().In(o.loc)
+	}
+	return time.Now()
 }
 
 func (o *OpenAIProvider) Name() string {
@@ -457,12 +483,13 @@ func (o *OpenAIProvider) Ask(question string, ctx *WorkContext) (string, error) 
 }
 
 func (o *OpenAIProvider) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(o.now())
 	dailyTarget := 0.0
 	if remainingDays > 0 && weekProgress.RemainingHours > 0 {
 		dailyTarget = weekProgress.RemainingHours / float64(remainingDays)
 	}
 
+	weeklyGoal := weeklyGoalFromProgress(weekProgress)
 	systemMsg := "You are a helpful work hours assistant. Provide concise predictions."
 	userMsg := fmt.Sprintf(`Based on my work data:
 - Hours worked: %.2f
@@ -473,7 +500,7 @@ func (o *OpenAIProvider) Predict(weekProgress *tracker.WeekProgress) (string, er
 - Daily target: %.2f hours
 
 Predict when I'll reach my goal and if I'm on track.`,
-		weekProgress.TotalHours, work.WeeklyGoalHours, weekProgress.DaysWorkedCount,
+		weekProgress.TotalHours, weeklyGoal, weekProgress.DaysWorkedCount,
 		weekProgress.RemainingHours, remainingDays, dailyTarget)
 
 	return o.chatCompletion([]OpenAIMessage{
@@ -593,16 +620,25 @@ type ClaudeProvider struct {
 	model  string
 	apiKey string
 	client *http.Client
+	loc    *time.Location
 }
 
-func NewClaudeProvider(model, apiKey string) *ClaudeProvider {
+func NewClaudeProvider(model, apiKey string, loc *time.Location) *ClaudeProvider {
 	return &ClaudeProvider{
 		model:  model,
 		apiKey: apiKey,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		loc: loc,
 	}
+}
+
+func (c *ClaudeProvider) now() time.Time {
+	if c.loc != nil {
+		return time.Now().In(c.loc)
+	}
+	return time.Now()
 }
 
 func (c *ClaudeProvider) Name() string {
@@ -637,19 +673,20 @@ func (c *ClaudeProvider) Ask(question string, ctx *WorkContext) (string, error) 
 }
 
 func (c *ClaudeProvider) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(c.now())
 	dailyTarget := 0.0
 	if remainingDays > 0 && weekProgress.RemainingHours > 0 {
 		dailyTarget = weekProgress.RemainingHours / float64(remainingDays)
 	}
 
+	weeklyGoal := weeklyGoalFromProgress(weekProgress)
 	prompt := fmt.Sprintf(`You are a work hours assistant. Based on this data:
 - Hours worked: %.2f / %.2f goal
 - Days worked: %d
 - Remaining: %.2f hours over %d days (%.2f h/day)
 
 Predict when I'll reach my goal and if I'm on track. Keep response concise.`,
-		weekProgress.TotalHours, work.WeeklyGoalHours, weekProgress.DaysWorkedCount,
+		weekProgress.TotalHours, weeklyGoal, weekProgress.DaysWorkedCount,
 		weekProgress.RemainingHours, remainingDays, dailyTarget)
 
 	return c.claudeMessage(prompt)
@@ -756,16 +793,25 @@ type GeminiProvider struct {
 	model  string
 	apiKey string
 	client *http.Client
+	loc    *time.Location
 }
 
-func NewGeminiProvider(model, apiKey string) *GeminiProvider {
+func NewGeminiProvider(model, apiKey string, loc *time.Location) *GeminiProvider {
 	return &GeminiProvider{
 		model:  model,
 		apiKey: apiKey,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		loc: loc,
 	}
+}
+
+func (g *GeminiProvider) now() time.Time {
+	if g.loc != nil {
+		return time.Now().In(g.loc)
+	}
+	return time.Now()
 }
 
 func (g *GeminiProvider) Name() string {
@@ -799,11 +845,12 @@ func (g *GeminiProvider) Ask(question string, ctx *WorkContext) (string, error) 
 }
 
 func (g *GeminiProvider) Predict(weekProgress *tracker.WeekProgress) (string, error) {
-	remainingDays := work.RemainingWorkDaysInWeek(time.Now())
+	remainingDays := work.RemainingWorkDaysInWeek(g.now())
+	weeklyGoal := weeklyGoalFromProgress(weekProgress)
 
 	prompt := fmt.Sprintf(`Work hours prediction: %.2f/%.2f hours, %d days worked, %.2f remaining over %d days.
 Predict when I'll reach my goal. Be concise.`,
-		weekProgress.TotalHours, work.WeeklyGoalHours, weekProgress.DaysWorkedCount,
+		weekProgress.TotalHours, weeklyGoal, weekProgress.DaysWorkedCount,
 		weekProgress.RemainingHours, remainingDays)
 
 	return g.geminiGenerate(prompt)
@@ -905,4 +952,15 @@ type GeminiResponse struct {
 	Candidates []struct {
 		Content GeminiContent `json:"content"`
 	} `json:"candidates"`
+}
+
+func weeklyGoalFromProgress(weekProgress *tracker.WeekProgress) float64 {
+	if weekProgress == nil {
+		return work.WeeklyGoalHours
+	}
+	goal := weekProgress.TotalHours + weekProgress.RemainingHours
+	if goal <= 0 {
+		return work.WeeklyGoalHours
+	}
+	return goal
 }

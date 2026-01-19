@@ -12,24 +12,23 @@ import (
 	"github.com/kairos/internal/mcp/core"
 	"github.com/kairos/internal/storage"
 	"github.com/kairos/internal/tracker"
-	"github.com/kairos/internal/work"
 )
 
 // Server wraps the core MCP server with Kairos-specific functionality
 type Server struct {
 	*core.Server
-	db       *storage.Database
+	db        *storage.Database
 	aiService *ai.AIService
-	port     int
+	port      int
 }
 
 // NewServer creates a new Kairos MCP server
 func NewServer(db *storage.Database, aiSvc *ai.AIService, port int) *Server {
 	server := &Server{
-		Server:   core.NewServer(port),
-		db:       db,
+		Server:    core.NewServer(port),
+		db:        db,
 		aiService: aiSvc,
-		port:     port,
+		port:      port,
 	}
 
 	server.registerTools()
@@ -85,7 +84,7 @@ func (s *Server) registerTools() {
 		"evolve",
 		"Analyze your work patterns and suggest improvements",
 		core.ToolParameters(map[string]map[string]interface{}{
-			"timeframe":   core.StringParam("Time period to analyze", []string{"week", "month", "quarter"}),
+			"timeframe":  core.StringParam("Time period to analyze", []string{"week", "month", "quarter"}),
 			"focus_area": core.StringParam("Area to focus on", []string{"productivity", "consistency", "balance", "goals"}),
 		}),
 		func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
@@ -95,7 +94,11 @@ func (s *Server) registerTools() {
 			weekProgress, _ := t.GetWeeklyProgress()
 			monthProgress, _ := t.GetMonthlyProgress()
 
-			progressRatio := weekProgress.TotalHours / work.WeeklyGoalHours
+			weeklyGoal := t.WeeklyGoal()
+			progressRatio := 0.0
+			if weeklyGoal > 0 {
+				progressRatio = weekProgress.TotalHours / weeklyGoal
+			}
 			consistency := float64(weekProgress.DaysWorkedCount) / 7.0
 
 			remainingDays := 7 - weekProgress.DaysWorkedCount
@@ -105,20 +108,20 @@ func (s *Server) registerTools() {
 			}
 
 			return map[string]interface{}{
-				"timeframe":         timeframe,
-				"focus_area":        focusArea,
-				"evolution_score":   (progressRatio * 0.7) + (consistency * 0.3),
-				"week_hours":        weekProgress.TotalHours,
-				"month_hours":       monthProgress.TotalHours,
-				"days_worked":       weekProgress.DaysWorkedCount,
-				"remaining_hours":   weekProgress.RemainingHours,
-				"daily_target":      dailyTarget,
+				"timeframe":       timeframe,
+				"focus_area":      focusArea,
+				"evolution_score": (progressRatio * 0.7) + (consistency * 0.3),
+				"week_hours":      weekProgress.TotalHours,
+				"month_hours":     monthProgress.TotalHours,
+				"days_worked":     weekProgress.DaysWorkedCount,
+				"remaining_hours": weekProgress.RemainingHours,
+				"daily_target":    dailyTarget,
 				"suggestions": []string{
 					fmt.Sprintf("Aim for %.1f hours over %d remaining days", dailyTarget, remainingDays),
 					"Try time-blocking for focused work sessions",
 					"Maintain regular start/end times each day",
 				},
-				"timestamp": time.Now().Format(time.RFC3339),
+				"timestamp": t.Now().Format(time.RFC3339),
 			}, nil
 		},
 	)
@@ -139,8 +142,10 @@ func (s *Server) registerTools() {
 			dayProgress, _ := t.GetTodayProgress()
 			weekProgress, _ := t.GetWeeklyProgress()
 			activeSession, _ := t.GetActiveSession()
+			weeklyGoal := t.WeeklyGoal()
 
-			hour := float64(time.Now().Hour()) + float64(time.Now().Minute())/60.0
+			now := t.Now()
+			hour := float64(now.Hour()) + float64(now.Minute())/60.0
 			timeOfDay := "unknown"
 			if hour < 12 {
 				timeOfDay = "morning"
@@ -150,14 +155,18 @@ func (s *Server) registerTools() {
 				timeOfDay = "evening"
 			}
 
+			progressRatio := 0.0
+			if weeklyGoal > 0 {
+				progressRatio = weekProgress.TotalHours / weeklyGoal
+			}
 			consciousness := map[string]interface{}{
-				"timestamp":         time.Now().Format(time.RFC3339),
+				"timestamp":         now.Format(time.RFC3339),
 				"time_of_day":       timeOfDay,
 				"is_working":        activeSession != nil,
 				"today_hours":       dayProgress.TotalHours,
 				"week_hours":        weekProgress.TotalHours,
-				"weekly_goal":       work.WeeklyGoalHours,
-				"goal_progress":     weekProgress.TotalHours / work.WeeklyGoalHours * 100,
+				"weekly_goal":       weeklyGoal,
+				"goal_progress":     progressRatio * 100,
 				"remaining_to_goal": weekProgress.RemainingHours,
 			}
 

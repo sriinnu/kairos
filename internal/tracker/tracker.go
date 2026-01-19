@@ -11,30 +11,54 @@ import (
 type Tracker struct {
 	db         *storage.Database
 	weeklyGoal float64
+	nowFn      func() time.Time
 }
 
 func New(db *storage.Database, weeklyGoal float64) *Tracker {
-	if weeklyGoal <= 0 {
-		weeklyGoal = work.WeeklyGoalHours
-	}
-	return &Tracker{
-		db:         db,
-		weeklyGoal: weeklyGoal,
-	}
+	return NewWithLocation(db, weeklyGoal, time.Local)
 }
 
 // NewWithDefaults creates a tracker with default work rules
 func NewWithDefaults(db *storage.Database) *Tracker {
+	return NewWithLocation(db, work.WeeklyGoalHours, time.Local)
+}
+
+func NewWithLocation(db *storage.Database, weeklyGoal float64, loc *time.Location) *Tracker {
+	if weeklyGoal <= 0 {
+		weeklyGoal = work.WeeklyGoalHours
+	}
+	if loc == nil {
+		loc = time.Local
+	}
 	return &Tracker{
 		db:         db,
-		weeklyGoal: work.WeeklyGoalHours,
+		weeklyGoal: weeklyGoal,
+		nowFn: func() time.Time {
+			return time.Now().In(loc)
+		},
 	}
 }
 
+func (t *Tracker) now() time.Time {
+	if t.nowFn != nil {
+		return t.nowFn()
+	}
+	return time.Now()
+}
+
+func (t *Tracker) Now() time.Time {
+	return t.now()
+}
+
+func (t *Tracker) WeeklyGoal() float64 {
+	return t.weeklyGoal
+}
+
 func (t *Tracker) ClockIn(note string) (*storage.WorkSession, error) {
+	now := t.now()
 	session := &storage.WorkSession{
-		Date:         time.Now(),
-		StartTime:    time.Now(),
+		Date:         now,
+		StartTime:    now,
 		BreakMinutes: 0,
 		Note:         note,
 	}
@@ -47,21 +71,24 @@ func (t *Tracker) ClockIn(note string) (*storage.WorkSession, error) {
 }
 
 func (t *Tracker) ClockInWithTime(note, timeStr string) (*storage.WorkSession, error) {
+	now := t.now()
 	session := &storage.WorkSession{
-		Date:         time.Now(),
-		StartTime:    time.Now(),
+		Date:         now,
+		StartTime:    now,
 		BreakMinutes: 0,
 		Note:         note,
 	}
 
 	// Parse time override if provided
 	if timeStr != "" {
-		startTime, err := parseTime(timeStr)
+		startTime, err := parseTimeOnDate(now, timeStr)
 		if err == nil {
 			session.StartTime = startTime
+			session.Date = startTime
 			// Adjust date if time is from previous day (e.g., 8:45 AM when it's evening)
-			if startTime.After(time.Now()) {
+			if startTime.After(now) {
 				session.Date = session.Date.AddDate(0, 0, -1)
+				session.StartTime = session.StartTime.AddDate(0, 0, -1)
 			}
 		}
 	}
@@ -86,10 +113,13 @@ func (t *Tracker) ClockOutWithTime(id string, breakMinutes int, note string, tim
 		return nil, fmt.Errorf("session not found")
 	}
 
-	endTime := time.Now()
+	endTime := t.now()
 	if timeStr != "" {
-		parsed, err := parseTime(timeStr)
+		parsed, err := parseTimeOnDate(session.StartTime, timeStr)
 		if err == nil {
+			if parsed.Before(session.StartTime) {
+				parsed = parsed.Add(24 * time.Hour)
+			}
 			endTime = parsed
 		}
 	}
@@ -107,24 +137,24 @@ func (t *Tracker) ClockOutWithTime(id string, breakMinutes int, note string, tim
 	return session, nil
 }
 
-func parseTime(s string) (time.Time, error) {
-	now := time.Now()
+func parseTimeOnDate(base time.Time, s string) (time.Time, error) {
 	for _, format := range []string{"15:04", "3:04", "15:04:05", "3:04:05"} {
 		if t, err := time.Parse(format, s); err == nil {
-			return time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, now.Location()), nil
+			return time.Date(base.Year(), base.Month(), base.Day(), t.Hour(), t.Minute(), t.Second(), 0, base.Location()), nil
 		}
 	}
 	return time.Time{}, fmt.Errorf("invalid time format: %s", s)
 }
 
 func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
-	sessions, err := t.db.GetTodaySessions()
+	now := t.now()
+	sessions, err := t.db.GetSessionsInRange(now, now)
 	if err != nil {
 		return nil, err
 	}
 
 	progress := &DayProgress{
-		Date:       time.Now(),
+		Date:       now,
 		Sessions:   sessions,
 		TotalHours: 0,
 	}
@@ -144,11 +174,11 @@ func (t *Tracker) GetTodayProgress() (*DayProgress, error) {
 }
 
 func (t *Tracker) GetWeeklyProgress() (*WeekProgress, error) {
-	return t.GetWeekProgressForDate(time.Now())
+	return t.GetWeekProgressForDate(t.now())
 }
 
 func (t *Tracker) GetLastWeekProgress() (*WeekProgress, error) {
-	lastWeekStart := getWeekStart(time.Now()).AddDate(0, 0, -7)
+	lastWeekStart := getWeekStart(t.now()).AddDate(0, 0, -7)
 	return t.computeWeekProgress(lastWeekStart)
 }
 
@@ -190,7 +220,7 @@ func (t *Tracker) computeWeekProgress(weekStart time.Time) (*WeekProgress, error
 }
 
 func (t *Tracker) GetMonthlyProgress() (*MonthProgress, error) {
-	now := time.Now()
+	now := t.now()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
 	sessions, err := t.db.GetSessionsInRange(monthStart, now)
@@ -250,16 +280,20 @@ func (t *Tracker) EditSessionSelective(id string, breakMinutes int, breakChanged
 
 	// Update start time if provided
 	if startTimeStr != "" {
-		newTime, err := parseTime(startTimeStr)
+		newTime, err := parseTimeOnDate(session.StartTime, startTimeStr)
 		if err == nil {
 			session.StartTime = newTime
+			session.Date = newTime
 		}
 	}
 
 	// Update end time if provided
 	if endTimeStr != "" {
-		newTime, err := parseTime(endTimeStr)
+		newTime, err := parseTimeOnDate(session.StartTime, endTimeStr)
 		if err == nil {
+			if newTime.Before(session.StartTime) {
+				newTime = newTime.Add(24 * time.Hour)
+			}
 			session.EndTime = &newTime
 		}
 	}
@@ -280,20 +314,20 @@ func getWeekStart(t time.Time) time.Time {
 }
 
 type DayProgress struct {
-	Date            time.Time
-	Sessions        []storage.WorkSession
-	TotalHours      float64
+	Date             time.Time
+	Sessions         []storage.WorkSession
+	TotalHours       float64
 	CurrentSessionID string
 }
 
 type WeekProgress struct {
-	WeekStart      time.Time
-	WeekEnd        time.Time
-	TotalHours     float64
-	DaysWorked     map[string]float64
+	WeekStart       time.Time
+	WeekEnd         time.Time
+	TotalHours      float64
+	DaysWorked      map[string]float64
 	DaysWorkedCount int
-	RemainingHours float64
-	Sessions       []storage.WorkSession
+	RemainingHours  float64
+	Sessions        []storage.WorkSession
 }
 
 type MonthProgress struct {

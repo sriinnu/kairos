@@ -13,7 +13,7 @@ import (
 var archiveCmd = &cobra.Command{
 	Use:   "archive",
 	Short: "Archive old months to markdown",
-	Long: `Archive past months' data to markdown files in ~/.kairos/history/
+	Long: `Archive past months' data to markdown files in ./.kairos/history/
 This keeps SQLite lean while preserving historical data.`,
 }
 
@@ -23,7 +23,7 @@ var archiveAutoCmd = &cobra.Command{
 	Long:  `Automatically archive all complete months before the current month.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		archiver := archive.New(db, historyPath)
+		archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
 
 		archived, err := archiver.AutoArchivePastMonths()
 		if err != nil {
@@ -57,7 +57,7 @@ var archiveMonthCmd = &cobra.Command{
 
 		clean, _ := cmd.Flags().GetBool("clean")
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		archiver := archive.New(db, historyPath)
+		archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
 
 		err = archiver.ArchiveMonth(t.Year(), t.Month(), clean)
 		if err != nil {
@@ -77,7 +77,7 @@ var archiveListCmd = &cobra.Command{
 	Short: "List archived months",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		archiver := archive.New(db, historyPath)
+		archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
 
 		archives, err := archiver.ListArchives()
 		if err != nil {
@@ -108,7 +108,7 @@ var archiveShowCmd = &cobra.Command{
 		}
 
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		archiver := archive.New(db, historyPath)
+		archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
 
 		content, err := archiver.ReadArchive(t.Year(), t.Month())
 		if err != nil {
@@ -135,7 +135,7 @@ var historyCmd = &cobra.Command{
 		}
 
 		historyPath := filepath.Join(filepath.Dir(cfg.DatabasePath), "history")
-		archiver := archive.New(db, historyPath)
+		archiver := archive.New(db, historyPath, trackerService.WeeklyGoal())
 
 		context, err := archiver.GetHistoryContext(monthsBack)
 		if err != nil {
